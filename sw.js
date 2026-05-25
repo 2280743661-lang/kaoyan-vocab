@@ -1,13 +1,13 @@
-const CACHE_NAME = 'vocab-v3';
-const ASSETS = [
-    'index.html',
-    'manifest.json',
-    'words.json'
-];
+const CACHE_NAME = 'vocab-v4';
 
 self.addEventListener('install', e => {
     e.waitUntil(
-        caches.open(CACHE_NAME).then(c => c.addAll(ASSETS))
+        caches.open(CACHE_NAME).then(c => c.addAll([
+            new Request('./index.html', { cache: 'reload' }),
+            new Request('./manifest.json', { cache: 'reload' }),
+            new Request('./words.json', { cache: 'reload' }),
+            new Request('./words.js', { cache: 'reload' })
+        ]))
     );
     self.skipWaiting();
 });
@@ -21,20 +21,21 @@ self.addEventListener('activate', e => {
 });
 
 self.addEventListener('fetch', e => {
+    // Skip non-GET requests
+    if (e.request.method !== 'GET') return;
+
     e.respondWith(
         caches.match(e.request).then(r => {
             if (r) return r;
             return fetch(e.request).then(res => {
-                // Cache successful responses for future offline use
-                if (res && res.ok && res.type === 'basic') {
+                if (res && res.ok && (res.type === 'basic' || res.type === 'cors')) {
                     const clone = res.clone();
                     caches.open(CACHE_NAME).then(c => c.put(e.request, clone));
                 }
                 return res;
             }).catch(() => {
-                // Offline fallback: try cache again for navigation requests
                 if (e.request.mode === 'navigate') {
-                    return caches.match('index.html');
+                    return caches.match(new Request('./index.html'));
                 }
                 return new Response('离线中', { status: 503 });
             });
