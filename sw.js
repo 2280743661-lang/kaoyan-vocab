@@ -1,4 +1,4 @@
-const CACHE_NAME = 'vocab-v4';
+const CACHE_NAME = 'vocab-v5';
 
 self.addEventListener('install', e => {
     e.waitUntil(
@@ -24,21 +24,33 @@ self.addEventListener('fetch', e => {
     // Skip non-GET requests
     if (e.request.method !== 'GET') return;
 
-    e.respondWith(
-        caches.match(e.request).then(r => {
-            if (r) return r;
-            return fetch(e.request).then(res => {
-                if (res && res.ok && (res.type === 'basic' || res.type === 'cors')) {
+    // HTML/JS/JSON: 网络优先（确保更新及时生效）
+    const url = new URL(e.request.url);
+    const isDynamic = url.pathname.endsWith('.html') || url.pathname.endsWith('.js') || url.pathname.endsWith('.json') || url.pathname === '/' || url.pathname === '';
+
+    if (isDynamic) {
+        e.respondWith(
+            fetch(e.request).then(res => {
+                if (res && res.ok) {
                     const clone = res.clone();
                     caches.open(CACHE_NAME).then(c => c.put(e.request, clone));
                 }
                 return res;
-            }).catch(() => {
-                if (e.request.mode === 'navigate') {
-                    return caches.match(new Request('./index.html'));
-                }
-                return new Response('离线中', { status: 503 });
-            });
-        })
-    );
+            }).catch(() => caches.match(e.request))
+        );
+    } else {
+        // 其他资源：缓存优先
+        e.respondWith(
+            caches.match(e.request).then(r => {
+                if (r) return r;
+                return fetch(e.request).then(res => {
+                    if (res && res.ok && (res.type === 'basic' || res.type === 'cors')) {
+                        const clone = res.clone();
+                        caches.open(CACHE_NAME).then(c => c.put(e.request, clone));
+                    }
+                    return res;
+                });
+            })
+        );
+    }
 });
