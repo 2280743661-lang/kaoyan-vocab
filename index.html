@@ -251,7 +251,7 @@ body {
 
 <div id="splash">
     <h1>考研背单词</h1>
-    <p>艾宾浩斯遗忘曲线 · 三重记忆法</p>
+    <p>SSP-MMC 智能调度 · DHP 记忆模型</p>
     <div class="loader"></div>
     <p id="splash-tip" style="font-size:12px;color:var(--text2);margin-top:20px;text-align:center;line-height:1.6"></p>
 </div>
@@ -261,8 +261,12 @@ body {
 <!-- Pages -->
 <div id="page-home" class="page active">
     <div class="page-header">
-        <h1>今日任务</h1>
+        <h1>今日任务 · SSP-MMC</h1>
         <p id="today-date"></p>
+    </div>
+    <div class="card" id="daily-tip-card" style="background:linear-gradient(135deg,rgba(0,210,255,0.08),rgba(233,69,96,0.08));border:1px solid rgba(0,210,255,0.15)">
+        <div id="daily-tip-text" style="font-size:14px;line-height:1.8;color:var(--text);font-style:italic"></div>
+        <div id="daily-tip-author" style="font-size:12px;color:var(--text2);margin-top:6px;text-align:right"></div>
     </div>
     <div class="stats-grid" id="home-stats"></div>
     <div class="card">
@@ -291,7 +295,7 @@ body {
 </div>
 
 <div id="page-flashcard" class="page">
-    <div class="page-header"><h1>认词</h1><p>看英文回忆中文释义</p></div>
+    <div class="page-header"><h1>认词</h1><p>SSP-MMC 智能调度 · 看英文回忆中文</p></div>
     <div id="flashcard-container">
         <div class="flashcard-progress" id="fc-progress"></div>
         <div class="flashcard-container">
@@ -301,7 +305,8 @@ body {
                 <div class="meaning" id="fc-meaning"></div>
                 <div class="fc-example" id="fc-example"></div>
                 <div class="fc-example-cn" id="fc-example-cn"></div>
-                <div class="hint" id="fc-hint">点击显示释义 | ←不认识 认识→ 模糊↑</div>
+                <div class="hint" id="fc-hint">点击/空格翻牌 | ←不认识 →认识 ↑模糊 | ☆收藏</div>
+                <button id="fc-fav-btn" style="position:absolute;top:12px;right:12px;background:none;border:none;font-size:20px;cursor:pointer;opacity:0.5;transition:opacity 0.2s" title="双击收藏">☆</button>
             </div>
             <div id="fc-swipe-indicator" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:28px;font-weight:700;opacity:0;transition:opacity 0.15s;pointer-events:none;text-shadow:0 2px 8px rgba(0,0,0,0.5)"></div>
         </div>
@@ -353,7 +358,7 @@ body {
 </div>
 
 <div id="page-practice" class="page">
-    <div class="page-header"><h1>待复习</h1><p>复习不熟练的单词</p></div>
+    <div class="page-header"><h1>待复习</h1><p>按紧急度排序 · 优先复习即将遗忘的词</p></div>
     <div class="quiz-progress" id="quiz-progress"></div>
     <div id="quiz-container">
         <div class="quiz-question">
@@ -372,10 +377,10 @@ body {
 </div>
 
 <div id="page-report" class="page">
-    <div class="page-header"><h1>学习报告</h1><p>数据驱动，科学复习</p></div>
+    <div class="page-header"><h1>学习报告</h1><p>DHP 模型 · 数据驱动</p></div>
     <div class="report-grid" id="report-stats"></div>
     <div class="card">
-        <div class="card-title">遗忘曲线 (预测 vs 实际)</div>
+        <div class="card-title">记忆衰减曲线 (DHP 预测 vs 实际)</div>
         <div class="chart-container"><canvas id="chart-forgetting"></canvas></div>
     </div>
     <div class="card">
@@ -383,8 +388,12 @@ body {
         <div class="chart-container"><canvas id="chart-daily"></canvas></div>
     </div>
     <div class="card">
-        <div class="card-title">记忆持久度</div>
+        <div class="card-title">记忆强度分布 (半衰期)</div>
         <div class="chart-container"><canvas id="chart-retention"></canvas></div>
+    </div>
+    <div class="card">
+        <div class="card-title">学习热力图 (近60天)</div>
+        <div id="heatmap-container" style="overflow-x:auto;padding:8px 0"></div>
     </div>
 </div>
 
@@ -436,7 +445,7 @@ body {
                 <div><span style="color:var(--success);font-weight:600" id="learned-count">0</span></div>
             </div>
             <div class="setting-item">
-                <div><div class="label">熟练单词</div><div class="desc">连续认识3次以上</div></div>
+                <div><div class="label">熟练单词</div><div class="desc">半衰期>30天</div></div>
                 <div><span style="color:var(--warning);font-weight:600" id="mastered-count">0</span></div>
             </div>
         </div>
@@ -464,6 +473,10 @@ body {
         <div class="card-title">成就墙</div>
         <div id="achievements-wall" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px"></div>
     </div>
+    <div class="card" style="margin-top:12px">
+        <div class="card-title">收藏单词 <span id="fav-count" style="color:var(--accent);font-size:12px"></span></div>
+        <div id="favorites-list" style="max-height:300px;overflow-y:auto"></div>
+    </div>
 </div>
 
 <!-- Tab Bar -->
@@ -483,9 +496,131 @@ body {
 // 考研背单词 - Complete Application (v2 - with all fixes)
 // ============================================================
 
-// Ebbinghaus intervals (hours)
-const EBBINGHAUS = [1/60, 1, 2, 4, 7, 15, 30, 60].map(d => d * 24);
-const STAGES = EBBINGHAUS.length;
+// ============================================================
+// DHP (Difficulty-HalfLife-Probability) Model + SSP-MMC Scheduling
+// ============================================================
+const TARGET_RECALL = 0.85;           // 目标召回率：在记忆衰减到 85% 时复习
+const LOG2_INV_TARGET = Math.log2(1 / TARGET_RECALL); // ≈ 0.2345
+const INITIAL_HALFLIFE = 0.5;         // 初始半衰期（小时）= 30分钟
+const INITIAL_STABILITY = 2.5;        // 初始稳定性因子
+const INITIAL_DIFFICULTY = 0.3;       // 初始难度
+const MASTERED_HALFLIFE = 720;        // 半衰期 > 30天 = 已掌握
+
+// 计算当前召回概率: P = 2^(-t/halfLife)
+function calcRecallProb(halfLife, lastReview) {
+    if (!halfLife || !lastReview) return 0;
+    const hoursSince = (Date.now() - lastReview) / 3600000;
+    return Math.pow(2, -hoursSince / halfLife);
+}
+
+// 计算最优复习时间（SSP-MMC）：在记忆衰减到 TARGET_RECALL 时
+function getOptimalReviewTime(halfLife, lastReview) {
+    if (!halfLife || !lastReview) return Date.now();
+    return lastReview + halfLife * LOG2_INV_TARGET * 3600000;
+}
+
+// 计算紧急度（0~1），越高越需要复习
+function calcUrgency(prog) {
+    if (!prog.halfLife || !prog.lastReview) return 1; // 新词最高优先
+    return 1 - calcRecallProb(prog.halfLife, prog.lastReview);
+}
+
+// 计算响应历史的波动性（0~1）
+function calcResponseVariance(history) {
+    if (!history || history.length < 2) return 0.5;
+    let switches = 0;
+    for (let i = 1; i < history.length; i++) {
+        if ((history[i] >= 2) !== (history[i-1] >= 2)) switches++;
+    }
+    return switches / (history.length - 1);
+}
+
+// 更新 DHP 参数
+function updateDHPParams(prog, confidence) {
+    let { halfLife, difficulty, stability, totalReviews, errorCount, responseHistory } = prog;
+
+    halfLife = halfLife || INITIAL_HALFLIFE;
+    difficulty = difficulty ?? INITIAL_DIFFICULTY;
+    stability = stability || INITIAL_STABILITY;
+    totalReviews = totalReviews || 0;
+    errorCount = errorCount || 0;
+    responseHistory = responseHistory || [];
+
+    // 根据复习结果更新半衰期
+    if (confidence >= 2) {
+        // 认识：半衰期增长
+        halfLife = halfLife * stability * (1 + difficulty * 0.5);
+        stability = Math.min(stability * 1.1, 10); // 稳定性缓慢增长，上限10
+    } else if (confidence === 1) {
+        // 模糊：中等惩罚
+        halfLife = halfLife * 0.6;
+        stability = Math.max(stability * 0.9, 1.5);
+    } else {
+        // 不认识：大幅缩短
+        halfLife = halfLife * 0.2;
+        stability = Math.max(stability * 0.8, 1.5);
+        errorCount++;
+    }
+
+    // 半衰期下限 5 分钟，上限 365 天
+    halfLife = Math.max(5/60, Math.min(halfLife, 365 * 24));
+
+    // 更新响应历史（保留最近 10 次）
+    responseHistory.push(confidence);
+    if (responseHistory.length > 10) responseHistory = responseHistory.slice(-10);
+
+    // 更新难度
+    totalReviews++;
+    const errorRate = errorCount / totalReviews;
+    const variance = calcResponseVariance(responseHistory);
+    const baseDiff = INITIAL_DIFFICULTY;
+    // 数据越多，越依赖实际数据；数据少时偏向初始值
+    const dataWeight = Math.min(1, totalReviews / 10);
+    difficulty = dataWeight * (0.5 * errorRate + 0.5 * variance) + (1 - dataWeight) * baseDiff;
+    difficulty = Math.max(0.05, Math.min(difficulty, 0.95));
+
+    return {
+        halfLife: Math.round(halfLife * 1000) / 1000,
+        difficulty: Math.round(difficulty * 1000) / 1000,
+        stability: Math.round(stability * 100) / 100,
+        totalReviews,
+        errorCount,
+        responseHistory
+    };
+}
+
+// 旧数据迁移：stage-based → DHP
+function migrateProgress(prog) {
+    if (prog.halfLife) return prog; // 已经是新格式
+    const stage = prog.stage || 0;
+    const legacyEBB = [1/60, 1, 2, 4, 7, 15, 30, 60].map(d => d * 24);
+    const idx = Math.min(Math.floor(stage), 7);
+    return {
+        ...prog,
+        halfLife: legacyEBB[idx],
+        difficulty: 0.3 + (1 - stage / 8) * 0.4,
+        stability: INITIAL_STABILITY,
+        totalReviews: prog.totalReviews || 0,
+        errorCount: prog.mistakeCount || 0,
+        responseHistory: []
+    };
+}
+
+async function migrateAllProgress() {
+    const allProg = await getAllProgress();
+    const needsMigration = allProg.filter(p => !p.halfLife);
+    if (needsMigration.length === 0) return;
+
+    console.log(`Migrating ${needsMigration.length} words to DHP model...`);
+    const tx = db.transaction('progress', 'readwrite');
+    const store = tx.objectStore('progress');
+    for (const p of needsMigration) {
+        const migrated = migrateProgress(p);
+        store.put(migrated);
+    }
+    await new Promise(r => { tx.oncomplete = r; });
+    console.log(`Migration complete: ${needsMigration.length} words updated.`);
+}
 
 const FC_SESSION_KEY = 'fc_session';
 const BROWSE_IDX_KEY = 'browse_idx';
@@ -514,7 +649,7 @@ let state = {
 // ============================================================
 function openDB() {
     return new Promise((resolve, reject) => {
-        const req = indexedDB.open('VocabDB', 3);
+        const req = indexedDB.open('VocabDB', 4);
         req.onupgradeneeded = e => {
             const db = e.target.result;
             if (!db.objectStoreNames.contains('progress')) {
@@ -718,8 +853,10 @@ function getStreakDisplay() {
 }
 
 function getDueWords(allProg) {
-    const now = Date.now();
-    return allProg.filter(p => p.nextReview && p.nextReview <= now);
+    return allProg.filter(p => {
+        if (!p.halfLife || !p.lastReview) return p.nextReview && p.nextReview <= Date.now();
+        return calcRecallProb(p.halfLife, p.lastReview) <= TARGET_RECALL;
+    });
 }
 
 function getNewWordsCount(allProg) {
@@ -732,49 +869,50 @@ function getReviewedToday(allProg) {
 }
 
 function getEbbinghausRetention(days) {
-    return Math.exp(-days / 0.5) * 100;
+    // DHP 模型：基于平均半衰期的召回概率
+    const avgHalfLifeDays = 2; // 平均半衰期约2天
+    return Math.pow(2, -days / avgHalfLifeDays) * 100;
 }
 
-function getNextReview(stage) {
-    const intervalHours = EBBINGHAUS[Math.min(Math.floor(stage), STAGES - 1)];
-    return Date.now() + intervalHours * 3600000;
+function getNextReview(halfLife, lastReview) {
+    return getOptimalReviewTime(halfLife, lastReview || Date.now());
 }
 
 async function recordReview(wordId, confidence, source) {
-    const p = await getProgress(wordId);
-    let stage = p ? p.stage : 0;
-    let correctStreak = p ? p.correctStreak || 0 : 0;
-    let confidenceSum = p ? p.confidence || 0 : 0;
-    let mistakeCount = p ? p.mistakeCount || 0 : 0;
+    let p = await getProgress(wordId);
+    if (p) p = migrateProgress(p);
+
+    let halfLife = p ? p.halfLife : INITIAL_HALFLIFE;
+    let difficulty = p ? p.difficulty : INITIAL_DIFFICULTY;
+    let stability = p ? p.stability : INITIAL_STABILITY;
     let totalReviews = p ? p.totalReviews || 0 : 0;
+    let errorCount = p ? p.errorCount || 0 : 0;
+    let responseHistory = p ? p.responseHistory || [] : [];
+    let correctStreak = p ? p.correctStreak || 0 : 0;
 
-    if (confidence >= 2) { // 认识
-        stage = Math.min(stage + 1, STAGES);
-        correctStreak += 1;
-        confidenceSum += 1;
-    } else if (confidence === 1) { // 模糊
-        stage = stage + 0.5;
-        correctStreak = Math.max(0, correctStreak - 1);
-    } else { // 不认识
-        stage = Math.max(0, stage - 1);
-        correctStreak = 0;
-        mistakeCount += 1;
-    }
+    // 更新 DHP 参数
+    const updated = updateDHPParams({
+        halfLife, difficulty, stability, totalReviews, errorCount, responseHistory
+    }, confidence);
 
-    // 连续认识3次 = 已掌握
-    const mastered = correctStreak >= 3 ? 1 : 0;
+    if (confidence >= 2) correctStreak += 1;
+    else if (confidence === 1) correctStreak = Math.max(0, correctStreak - 1);
+    else correctStreak = 0;
+
+    // 已掌握：半衰期 > 30天
+    const mastered = updated.halfLife >= MASTERED_HALFLIFE ? 1 : 0;
 
     await saveProgress(wordId, {
         wordId,
-        stage: Math.round(stage * 2) / 2,
+        ...updated,
         correctStreak,
         mastered,
-        nextReview: getNextReview(stage),
+        nextReview: getNextReview(updated.halfLife, Date.now()),
         lastReview: Date.now(),
         lastReviewDate: today(),
-        confidence: confidenceSum,
-        mistakeCount,
-        totalReviews: totalReviews + 1
+        stage: Math.round(updated.halfLife / 24), // 保留兼容字段：stage ≈ 半衰期天数
+        confidence: (p ? p.confidence || 0 : 0) + (confidence >= 2 ? 1 : 0),
+        mistakeCount: updated.errorCount
     });
 
     // Save daily stats
@@ -832,8 +970,8 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
         if (btn.dataset.tab === 'practice') initPractice();
         if (btn.dataset.tab === 'report') renderReport();
         if (btn.dataset.tab === 'settings') renderSettings();
-        // 记录活跃天
-        getStreak();
+        // 记录活跃天（含连续学习保护）
+        getStreakWithFreeze();
     });
 });
 
@@ -871,17 +1009,23 @@ async function renderHome() {
     const reviewed = getReviewedToday(allProg);
     const newWords = getNewWordsCount(allProg);
     const totalLearned = allProg.length;
-    const mastered = allProg.filter(p => p.mastered || p.stage >= STAGES).length;
+    const mastered = allProg.filter(p => p.mastered || (p.halfLife && p.halfLife >= MASTERED_HALFLIFE)).length;
     const correctStreaks = allProg.filter(p => (p.correctStreak || 0) >= 2).length;
 
-    const streak = getStreakDisplay();
+    const streakInfo = getStreakWithFreeze();
+    const streakLabel = streakInfo.freezeUsedNow ? '连续学习天 (已用保护)' : '连续学习天';
     document.getElementById('home-stats').innerHTML = `
         <div class="stat-card" id="due-words-card" style="cursor:pointer"><div class="num blue">${dueWords.length}</div><div class="label">待复习 点击进入 →</div></div>
         <div class="stat-card"><div class="num green">${reviewed}</div><div class="label">已复习</div></div>
         <div class="stat-card"><div class="num yellow">${newWords}</div><div class="label">待学新词</div></div>
         <div class="stat-card"><div class="num red">${mastered}</div><div class="label">已掌握</div></div>
-        <div class="stat-card"><div class="num" style="color:#fbbf24">${streak}</div><div class="label">连续学习天</div></div>
+        <div class="stat-card"><div class="num" style="color:#fbbf24">${streakInfo.count}</div><div class="label">${streakLabel}</div></div>
     `;
+
+    // 每日一句
+    const tip = getDailyTip();
+    document.getElementById('daily-tip-text').textContent = `"${tip.text}"`;
+    document.getElementById('daily-tip-author').textContent = tip.author ? `— ${tip.author}` : '';
 
     // Click 待复习 → 跳转到 practice tab
     document.getElementById('due-words-card').onclick = () => {
@@ -1000,11 +1144,15 @@ async function initFlashcard() {
     const dueWords = getDueWords(allProg);
     const practicedToday = getReviewedToday(allProg);
 
-    // Collect words: priority = due review > new > random learned
-    const dueWordList = dueWords.map(p => words.find(w => w.id === p.wordId)).filter(Boolean);
+    // Collect words: priority = due review (by urgency) > new > random learned
+    const dueWordList = dueWords
+        .map(p => ({ word: words.find(w => w.id === p.wordId), urgency: calcUrgency(p) }))
+        .filter(x => x.word)
+        .sort((a, b) => b.urgency - a.urgency)
+        .map(x => x.word);
     const allLearnedIds = new Set(allProg.map(p => p.wordId));
     const unlearnedList = words.filter(w => !allLearnedIds.has(w.id));
-    const learnedList = allProg.filter(p => p.stage < STAGES)
+    const learnedList = allProg.filter(p => !p.mastered && (!p.halfLife || p.halfLife < MASTERED_HALFLIFE))
         .map(p => words.find(w => w.id === p.wordId))
         .filter(w => w && !dueWords.find(d => d.wordId === w.id));
 
@@ -1091,7 +1239,20 @@ function showFlashcard() {
     document.getElementById('fc-example').classList.remove('show');
     document.getElementById('fc-example-cn').textContent = w.example_cn;
     document.getElementById('fc-example-cn').classList.remove('show');
-    document.getElementById('fc-hint').textContent = '点击显示释义';
+    document.getElementById('fc-hint').textContent = '点击显示释义 | ←不认识 认识→ 模糊↑ | 空格翻牌';
+
+    // 收藏按钮
+    const favBtn = document.getElementById('fc-fav-btn');
+    favBtn.textContent = isFavorite(w.id) ? '★' : '☆';
+    favBtn.style.opacity = isFavorite(w.id) ? '1' : '0.5';
+    favBtn.style.color = isFavorite(w.id) ? 'var(--warning)' : 'var(--text2)';
+    favBtn.onclick = (e) => {
+        e.stopPropagation();
+        const added = toggleFavorite(w.id);
+        favBtn.textContent = added ? '★' : '☆';
+        favBtn.style.opacity = added ? '1' : '0.5';
+        favBtn.style.color = added ? 'var(--warning)' : 'var(--text2)';
+    };
 
     speak(w.word);
     initSwipeGesture();
@@ -1121,11 +1282,18 @@ async function handleFCResponse(confidence) {
         state.fcOkIds.add(w.id);
     }
 
-    // Re-queue only for "不认识" (hard), max one re-queue per word
-    // Lower repetition: only re-queue if total queue < 300 and word hasn't been re-queued before
-    if (confidence === 0 && state.fcQueue.length < 300 && !w._requeued) {
-        w._requeued = true;
-        state.fcQueue.push(w);
+    // 间隔重复调度：不认识/模糊的词按遗忘曲线间隔重新插入队列
+    const requeueCount = w._requeueCount || 0;
+    const maxRequeue = 2; // 每个词最多重新插入2次
+
+    if (confidence <= 1 && requeueCount < maxRequeue && state.fcQueue.length < 500) {
+        w._requeueCount = requeueCount + 1;
+        // 不认识：5-10个词后再出现；模糊：15-20个词后再出现
+        const gap = confidence === 0
+            ? 5 + Math.floor(Math.random() * 6)
+            : 15 + Math.floor(Math.random() * 6);
+        const insertIdx = Math.min(state.fcIdx + gap, state.fcQueue.length);
+        state.fcQueue.splice(insertIdx, 0, w);
     }
 
     state.fcIdx++;
@@ -1140,10 +1308,10 @@ async function initSpelling() {
     const allProg = await getAllProgress();
     const t = today();
 
-    // 优先选"不认识"和"模糊"的词
+    // 优先选"不认识"和"模糊"的词，按紧急度排序
     const hardWords = allProg
-        .filter(p => p.mistakeCount > 0 || (p.correctStreak || 0) < 2)
-        .sort((a, b) => (b.mistakeCount || 0) - (a.mistakeCount || 0))
+        .filter(p => (p.errorCount || 0) > 0 || (p.correctStreak || 0) < 2)
+        .sort((a, b) => calcUrgency(b) - calcUrgency(a))
         .map(p => words.find(w => w.id === p.wordId))
         .filter(Boolean);
 
@@ -1370,11 +1538,11 @@ async function initPractice() {
     let pool = [];
     const poolIds = new Set();
 
-    // Priority 1: "不认识" words from today's flashcard, sorted by mistakeCount desc
+    // Priority 1: "不认识" words from today's flashcard, sorted by urgency desc
     const hardWords = pendingHardIds
-        .map(id => { const p = allProg.find(x => x.wordId === id); return p ? { word: words.find(w => w.id === id), mistakes: p.mistakeCount || 0 } : null; })
+        .map(id => { const p = allProg.find(x => x.wordId === id); return p ? { word: words.find(w => w.id === id), urgency: calcUrgency(p) } : null; })
         .filter(x => x && x.word)
-        .sort((a, b) => b.mistakes - a.mistakes);
+        .sort((a, b) => b.urgency - a.urgency);
     for (const { word: w } of hardWords) {
         if (pool.length >= state.quizCount) break;
         if (!poolIds.has(w.id)) { pool.push(w); poolIds.add(w.id); }
@@ -1387,21 +1555,21 @@ async function initPractice() {
         if (w && !poolIds.has(w.id)) { pool.push(w); poolIds.add(w.id); }
     }
 
-    // Priority 3: Due review words (艾宾浩斯到期), sorted by mistakeCount desc
+    // Priority 3: Due review words (DHP到期), sorted by urgency desc
     const dueSorted = dueWords
         .filter(p => !poolIds.has(p.wordId))
-        .sort((a, b) => (b.mistakeCount || 0) - (a.mistakeCount || 0));
+        .sort((a, b) => calcUrgency(b) - calcUrgency(a));
     for (const p of dueSorted) {
         if (pool.length >= state.quizCount) break;
         const w = words.find(x => x.id === p.wordId);
         if (w && !poolIds.has(w.id)) { pool.push(w); poolIds.add(w.id); }
     }
 
-    // Priority 4: Other learned words with high mistake count
+    // Priority 4: Other learned words, sorted by urgency (most urgent first)
     if (pool.length < state.quizCount) {
         const otherLearned = allProg
             .filter(p => !poolIds.has(p.wordId) && !dueWords.find(d => d.wordId === p.wordId))
-            .sort((a, b) => (b.mistakeCount || 0) - (a.mistakeCount || 0));
+            .sort((a, b) => calcUrgency(b) - calcUrgency(a));
         for (const p of otherLearned) {
             if (pool.length >= state.quizCount) break;
             const w = words.find(x => x.id === p.wordId);
@@ -1511,25 +1679,101 @@ async function renderReport() {
 
     // Stats
     const totalLearned = allProg.length;
-    const mastered = allProg.filter(p => p.mastered || p.stage >= STAGES).length;
-    const avgConfidence = allProg.length > 0
-        ? Math.round(allProg.reduce((s, p) => s + (p.confidence || 0), 0) / allProg.length * 10) / 10
-        : 0;
-    const totalReviews = allProg.reduce((s, p) => s + (p.totalReviews || 0), 0);
-    const avgStreak = allProg.length > 0
-        ? (allProg.reduce((s, p) => s + (p.correctStreak || 0), 0) / allProg.length * 10).toFixed(1)
+    const mastered = allProg.filter(p => p.mastered || (p.halfLife && p.halfLife >= MASTERED_HALFLIFE)).length;
+    const avgHalfLifeDays = allProg.length > 0
+        ? (allProg.reduce((s, p) => s + (p.halfLife || INITIAL_HALFLIFE), 0) / allProg.length / 24).toFixed(1)
         : '0.0';
+    const totalReviews = allProg.reduce((s, p) => s + (p.totalReviews || 0), 0);
+    const avgDifficulty = allProg.length > 0
+        ? (allProg.reduce((s, p) => s + (p.difficulty || INITIAL_DIFFICULTY), 0) / allProg.length * 100).toFixed(0)
+        : '0';
 
     document.getElementById('report-stats').innerHTML = `
         <div class="report-stat"><div class="num">${totalLearned}</div><div class="label">已学单词</div></div>
-        <div class="report-stat"><div class="num">${mastered}</div><div class="label">已掌握(连对3次+)</div></div>
-        <div class="report-stat"><div class="num">${avgConfidence}</div><div class="label">平均信心分</div></div>
-        <div class="report-stat"><div class="num">${totalReviews}</div><div class="label">总复习次数</div></div>
+        <div class="report-stat"><div class="num">${mastered}</div><div class="label">已掌握(半衰期>30天)</div></div>
+        <div class="report-stat"><div class="num">${avgHalfLifeDays}天</div><div class="label">平均半衰期</div></div>
+        <div class="report-stat"><div class="num">${avgDifficulty}%</div><div class="label">平均难度</div></div>
     `;
 
     drawForgettingCurve(allProg);
     drawDailyChart(allStats);
     drawRetentionChart(allProg);
+    drawHeatmap(allStats);
+}
+
+function drawHeatmap(allStats) {
+    const container = document.getElementById('heatmap-container');
+    const days = 60;
+    const statsMap = {};
+    allStats.forEach(s => { statsMap[s.date] = s.totalCount || 0; });
+
+    // Build grid: 7 rows (Mon-Sun) x N columns (weeks)
+    const today = new Date();
+    const cells = [];
+    for (let i = days - 1; i >= 0; i--) {
+        const d = new Date(today);
+        d.setDate(d.getDate() - i);
+        const dateStr = d.toISOString().split('T')[0];
+        const count = statsMap[dateStr] || 0;
+        const dow = d.getDay(); // 0=Sun, 1=Mon, ...
+        cells.push({ date: dateStr, count, dow, day: d.getDate(), month: d.getMonth() + 1 });
+    }
+
+    // Color scale
+    function getColor(count) {
+        if (count === 0) return 'rgba(255,255,255,0.04)';
+        if (count < 50) return 'rgba(0,210,255,0.2)';
+        if (count < 150) return 'rgba(0,210,255,0.4)';
+        if (count < 300) return 'rgba(0,210,255,0.6)';
+        return 'rgba(0,210,255,0.9)';
+    }
+
+    // Arrange into weeks (columns)
+    const weeks = [];
+    let currentWeek = [];
+    // Pad first week
+    const firstDow = cells[0]?.dow || 0;
+    for (let i = 0; i < firstDow; i++) currentWeek.push(null);
+
+    cells.forEach(cell => {
+        currentWeek.push(cell);
+        if (cell.dow === 6 || cell === cells[cells.length - 1]) {
+            weeks.push(currentWeek);
+            currentWeek = [];
+        }
+    });
+
+    const dayLabels = ['日', '一', '二', '三', '四', '五', '六'];
+    let html = '<div style="display:flex;gap:2px;font-size:10px">';
+    html += '<div style="display:flex;flex-direction:column;gap:2px;margin-right:4px">';
+    dayLabels.forEach(d => {
+        html += `<div style="height:16px;line-height:16px;color:var(--text2);text-align:right;width:16px">${d}</div>`;
+    });
+    html += '</div>';
+
+    weeks.forEach(week => {
+        html += '<div style="display:flex;flex-direction:column;gap:2px">';
+        for (let dow = 0; dow < 7; dow++) {
+            const cell = week[dow];
+            if (cell) {
+                const title = `${cell.month}/${cell.day}: ${cell.count}词`;
+                html += `<div title="${title}" style="width:16px;height:16px;border-radius:3px;background:${getColor(cell.count)};cursor:default"></div>`;
+            } else {
+                html += '<div style="width:16px;height:16px"></div>';
+            }
+        }
+        html += '</div>';
+    });
+
+    html += '</div>';
+    html += '<div style="display:flex;align-items:center;gap:4px;margin-top:8px;font-size:10px;color:var(--text2)">';
+    html += '<span>少</span>';
+    [0, 50, 150, 300, 500].forEach(v => {
+        html += `<div style="width:12px;height:12px;border-radius:2px;background:${getColor(v)}"></div>`;
+    });
+    html += '<span>多</span></div>';
+
+    container.innerHTML = html;
 }
 
 function drawForgettingCurve(allProg) {
@@ -1550,14 +1794,17 @@ function drawForgettingCurve(allProg) {
 
     ctx.clearRect(0, 0, w, h);
 
-    // Ebbinghaus theoretical curve
+    // DHP predicted curve (based on average halfLife)
+    const avgHalfLife = allProg.length > 0
+        ? allProg.reduce((s, p) => s + (p.halfLife || INITIAL_HALFLIFE), 0) / allProg.length / 24
+        : 0.5; // days
     ctx.strokeStyle = 'rgba(0,210,255,0.3)';
     ctx.setLineDash([4, 4]);
     ctx.lineWidth = 1.5;
     ctx.beginPath();
     for (let x = 0; x <= cw; x++) {
         const days = (x / cw) * 30;
-        const r = Math.exp(-days / 6.3) * 100;
+        const r = Math.pow(2, -days / avgHalfLife) * 100;
         if (x === 0) ctx.moveTo(pad.left + x, pad.top + ch - (r/100)*ch);
         else ctx.lineTo(pad.left + x, pad.top + ch - (r/100)*ch);
     }
@@ -1626,7 +1873,7 @@ function drawForgettingCurve(allProg) {
     ctx.fillStyle = 'var(--text2)';
     ctx.font = '9px sans-serif';
     ctx.textAlign = 'left';
-    ctx.fillText('理论遗忘曲线', cw - 88, 12);
+    ctx.fillText('DHP 预测曲线', cw - 88, 12);
     ctx.fillStyle = '#4ade80';
     ctx.fillRect(cw - 100, 18, 8, 8);
     ctx.fillStyle = 'var(--text2)';
@@ -1730,15 +1977,20 @@ function drawRetentionChart(allProg) {
 
     ctx.clearRect(0, 0, w, h);
 
-    // Count words at each review stage level (stage >= i)
-    const stageLabels = ['首次', '第1次', '第2次', '第3次', '第4次', '第5次', '第6次', '第7次'];
-    const stageData = Array.from({ length: STAGES }, (_, i) => {
-        const words = allProg.filter(p => Math.floor(p.stage) >= i);
-        return { stage: i, count: words.length };
+    // Count words by halfLife buckets (memory strength)
+    const stageLabels = ['<1h', '1-6h', '6-24h', '1-3天', '3-7天', '7-30天', '30-90天', '>90天'];
+    const buckets = [1, 6, 24, 72, 168, 720, 2160, Infinity];
+    const stageData = buckets.map((threshold, i) => {
+        const prev = i === 0 ? 0 : buckets[i - 1];
+        const count = allProg.filter(p => {
+            const hl = p.halfLife || 0;
+            return hl >= prev && hl < threshold;
+        }).length;
+        return { stage: i, count };
     });
 
     const maxCount = Math.max(1, ...stageData.map(d => d.count));
-    const barW = Math.min(28, cw / STAGES - 5);
+    const barW = Math.min(28, cw / stageData.length - 5);
 
     // Y axis
     ctx.fillStyle = 'var(--text2)';
@@ -1751,7 +2003,7 @@ function drawRetentionChart(allProg) {
     }
 
     stageData.forEach((d, i) => {
-        const x = pad.left + (i / STAGES) * cw + (cw / STAGES - barW) / 2;
+        const x = pad.left + (i / stageData.length) * cw + (cw / stageData.length - barW) / 2;
 
         // Bar
         const barH = maxCount > 0 ? (d.count / maxCount) * ch : 0;
@@ -1784,7 +2036,7 @@ async function renderSettings() {
 
     const allProg = await getAllProgress();
     document.getElementById('learned-count').textContent = allProg.length;
-    document.getElementById('mastered-count').textContent = allProg.filter(p => p.mastered || p.stage >= STAGES).length;
+    document.getElementById('mastered-count').textContent = allProg.filter(p => p.mastered || (p.halfLife && p.halfLife >= MASTERED_HALFLIFE)).length;
 
     const toggle = document.getElementById('speak-toggle');
     toggle.style.background = state.autoSpeak ? 'var(--accent)' : 'var(--surface2)';
@@ -1793,6 +2045,31 @@ async function renderSettings() {
 
     // Render achievements
     renderAchievements();
+    // Render favorites
+    renderFavorites();
+}
+
+function renderFavorites() {
+    const favIds = getFavorites();
+    const container = document.getElementById('favorites-list');
+    const countEl = document.getElementById('fav-count');
+    countEl.textContent = favIds.length > 0 ? `(${favIds.length})` : '';
+
+    if (favIds.length === 0) {
+        container.innerHTML = '<div style="text-align:center;color:var(--text2);padding:20px;font-size:13px">在认词页面点击 ☆ 收藏单词</div>';
+        return;
+    }
+
+    const favWords = favIds.map(id => words.find(w => w.id === id)).filter(Boolean);
+    container.innerHTML = favWords.map(w => `
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.05)">
+            <div>
+                <span style="font-weight:600;color:var(--accent)">${w.word}</span>
+                <span style="font-size:12px;color:var(--text2);margin-left:8px">${w.meaning}</span>
+            </div>
+            <button onclick="toggleFavorite(${w.id});renderFavorites()" style="background:none;border:none;color:var(--accent2);cursor:pointer;font-size:16px">✕</button>
+        </div>
+    `).join('');
 }
 
 document.getElementById('daily-target').onchange = e => {
@@ -2006,11 +2283,11 @@ const ACHIEVEMENTS = [
     { id: 'streak_14', name: '两周达人', desc: '连续学习14天', icon: '💪', check: s => getStreakDisplay() >= 14 },
     { id: 'streak_30', name: '月度冠军', desc: '连续学习30天', icon: '🏆', check: s => getStreakDisplay() >= 30 },
     { id: 'streak_100', name: '百日宗师', desc: '连续学习100天', icon: '👑', check: s => getStreakDisplay() >= 100 },
-    { id: 'master_100', name: '百词斩', desc: '掌握100个单词', icon: '📚', check: async () => { const p = await getAllProgress(); return p.filter(x => x.mastered || x.stage >= STAGES).length >= 100; } },
-    { id: 'master_500', name: '五百强', desc: '掌握500个单词', icon: '📖', check: async () => { const p = await getAllProgress(); return p.filter(x => x.mastered || x.stage >= STAGES).length >= 500; } },
-    { id: 'master_1000', name: '千词侠', desc: '掌握1000个单词', icon: '🎓', check: async () => { const p = await getAllProgress(); return p.filter(x => x.mastered || x.stage >= STAGES).length >= 1000; } },
-    { id: 'master_3000', name: '三千词霸', desc: '掌握3000个单词', icon: '🌟', check: async () => { const p = await getAllProgress(); return p.filter(x => x.mastered || x.stage >= STAGES).length >= 3000; } },
-    { id: 'master_5000', name: '词库征服者', desc: '掌握5000个单词', icon: '💎', check: async () => { const p = await getAllProgress(); return p.filter(x => x.mastered || x.stage >= STAGES).length >= 5000; } },
+    { id: 'master_100', name: '百词斩', desc: '掌握100个单词', icon: '📚', check: async () => { const p = await getAllProgress(); return p.filter(x => x.mastered || (x.halfLife && x.halfLife >= MASTERED_HALFLIFE)).length >= 100; } },
+    { id: 'master_500', name: '五百强', desc: '掌握500个单词', icon: '📖', check: async () => { const p = await getAllProgress(); return p.filter(x => x.mastered || (x.halfLife && x.halfLife >= MASTERED_HALFLIFE)).length >= 500; } },
+    { id: 'master_1000', name: '千词侠', desc: '掌握1000个单词', icon: '🎓', check: async () => { const p = await getAllProgress(); return p.filter(x => x.mastered || (x.halfLife && x.halfLife >= MASTERED_HALFLIFE)).length >= 1000; } },
+    { id: 'master_3000', name: '三千词霸', desc: '掌握3000个单词', icon: '🌟', check: async () => { const p = await getAllProgress(); return p.filter(x => x.mastered || (x.halfLife && x.halfLife >= MASTERED_HALFLIFE)).length >= 3000; } },
+    { id: 'master_5000', name: '词库征服者', desc: '掌握5000个单词', icon: '💎', check: async () => { const p = await getAllProgress(); return p.filter(x => x.mastered || (x.halfLife && x.halfLife >= MASTERED_HALFLIFE)).length >= 5000; } },
     { id: 'review_1000', name: '千次复习', desc: '累计复习1000次', icon: '🔄', check: async () => { const p = await getAllProgress(); return p.reduce((s, x) => s + (x.totalReviews || 0), 0) >= 1000; } },
     { id: 'review_5000', name: '五千次复习', desc: '累计复习5000次', icon: '⚡', check: async () => { const p = await getAllProgress(); return p.reduce((s, x) => s + (x.totalReviews || 0), 0) >= 5000; } },
     { id: 'daily_done', name: '今日达标', desc: '首次完成今日目标', icon: '✅', check: (s) => (s.totalCount || 0) >= state.dailyTarget },
@@ -2197,6 +2474,151 @@ function clearReminder() {
 }
 
 // ============================================================
+// Keyboard Shortcuts (键盘快捷键)
+// ============================================================
+document.addEventListener('keydown', e => {
+    // 只在认词页面激活时生效
+    const flashcardPage = document.getElementById('page-flashcard');
+    if (!flashcardPage.classList.contains('active')) return;
+    if (state.fcIdx >= state.fcQueue.length) return;
+
+    // 忽略输入框内的按键
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+    const meaningEl = document.getElementById('fc-meaning');
+    const isRevealed = meaningEl.classList.contains('show');
+
+    switch(e.key) {
+        case ' ':
+        case 'Enter':
+            e.preventDefault();
+            if (!isRevealed) {
+                // 翻牌
+                document.getElementById('fc-meaning').classList.add('show');
+                document.getElementById('fc-example').classList.add('show');
+                document.getElementById('fc-example-cn').classList.add('show');
+                document.getElementById('fc-hint').textContent = '';
+            }
+            break;
+        case 'ArrowLeft':
+            e.preventDefault();
+            if (isRevealed) handleFCResponse(0); // 不认识
+            break;
+        case 'ArrowRight':
+            e.preventDefault();
+            if (isRevealed) handleFCResponse(2); // 认识
+            break;
+        case 'ArrowUp':
+            e.preventDefault();
+            if (isRevealed) handleFCResponse(1); // 模糊
+            break;
+    }
+});
+
+// ============================================================
+// Favorites System (收藏单词)
+// ============================================================
+const FAVORITES_KEY = 'vocab_favorites';
+
+function getFavorites() {
+    try {
+        return JSON.parse(localStorage.getItem(FAVORITES_KEY) || '[]');
+    } catch { return []; }
+}
+
+function toggleFavorite(wordId) {
+    const favs = getFavorites();
+    const idx = favs.indexOf(wordId);
+    if (idx >= 0) {
+        favs.splice(idx, 1);
+        showToast('已取消收藏');
+    } else {
+        favs.push(wordId);
+        showToast('已收藏');
+    }
+    localStorage.setItem(FAVORITES_KEY, JSON.stringify(favs));
+    return idx < 0; // returns true if added
+}
+
+function isFavorite(wordId) {
+    return getFavorites().includes(wordId);
+}
+
+// ============================================================
+// Daily Tips (每日一句)
+// ============================================================
+const DAILY_TIPS = [
+    { text: '每一个你讨厌的现在，都有一个不够努力的曾经。', author: '' },
+    { text: '考研不是终点，而是一个新的起点。', author: '' },
+    { text: '今天多背一个单词，明天就多一份底气。', author: '' },
+    { text: '不积跬步，无以至千里。', author: '荀子' },
+    { text: '学习的敌人是自己的满足。', author: '毛泽东' },
+    { text: '书山有路勤为径，学海无涯苦作舟。', author: '韩愈' },
+    { text: 'The secret of getting ahead is getting started.', author: 'Mark Twain' },
+    { text: 'Success is the sum of small efforts, repeated day in and day out.', author: 'Robert Collier' },
+    { text: 'The only way to do great work is to love what you do.', author: 'Steve Jobs' },
+    { text: 'Education is the most powerful weapon which you can use to change the world.', author: 'Nelson Mandela' },
+    { text: 'It does not matter how slowly you go as long as you do not stop.', author: 'Confucius' },
+    { text: ' perseverance is not a long race; it is many short races one after the other.', author: 'Walter Elliot' },
+    { text: '学而不思则罔，思而不学则殆。', author: '孔子' },
+    { text: '温故而知新，可以为师矣。', author: '孔子' },
+    { text: 'The journey of a thousand miles begins with a single step.', author: 'Lao Tzu' },
+    { text: 'Believe you can and you are halfway there.', author: 'Theodore Roosevelt' },
+    { text: '种一棵树最好的时间是十年前，其次是现在。', author: '' },
+    { text: '你现在的努力，是为了以后有更多的选择。', author: '' },
+    { text: '坚持不一定成功，但放弃一定失败。', author: '' },
+    { text: '每天进步一点点，就是最好的状态。', author: '' },
+];
+
+function getDailyTip() {
+    const today = new Date().toISOString().split('T')[0];
+    const seed = today.split('-').reduce((a, b) => a * 31 + parseInt(b), 0);
+    const tip = DAILY_TIPS[seed % DAILY_TIPS.length];
+    return tip;
+}
+
+// ============================================================
+// Streak Freeze (连续学习保护)
+// ============================================================
+function getStreakWithFreeze() {
+    const count = parseInt(localStorage.getItem('streak_count') || '0');
+    const lastDate = localStorage.getItem('streak_last_date');
+    const freezeUsed = localStorage.getItem('streak_freeze_used') === 'true';
+    const t = today();
+
+    if (lastDate === t) return { count, freezeAvailable: count >= 7 && !freezeUsed };
+
+    const yesterdayStr = yesterday();
+    if (lastDate === yesterdayStr) {
+        // Normal continuation
+        const newCount = count + 1;
+        localStorage.setItem('streak_count', newCount.toString());
+        localStorage.setItem('streak_last_date', t);
+        localStorage.removeItem('streak_freeze_used');
+        return { count: newCount, freezeAvailable: newCount >= 7 };
+    }
+
+    // Check if streak can be saved by freeze (gap of 1 day, streak >= 7)
+    const lastDateObj = new Date(lastDate);
+    const todayObj = new Date(t);
+    const gapDays = Math.floor((todayObj - lastDateObj) / 86400000);
+
+    if (gapDays === 2 && count >= 7 && !freezeUsed) {
+        // Auto-use freeze: treat yesterday as a freeze day
+        localStorage.setItem('streak_count', (count + 1).toString());
+        localStorage.setItem('streak_last_date', t);
+        localStorage.setItem('streak_freeze_used', 'true');
+        return { count: count + 1, freezeAvailable: false, freezeUsedNow: true };
+    }
+
+    // Streak broken
+    localStorage.setItem('streak_count', '1');
+    localStorage.setItem('streak_last_date', t);
+    localStorage.removeItem('streak_freeze_used');
+    return { count: 1, freezeAvailable: false };
+}
+
+// ============================================================
 // Init
 // ============================================================
 async function init() {
@@ -2210,6 +2632,9 @@ async function init() {
     if (restored) {
         console.log('Data restored from localStorage backup');
     }
+
+    // 迁移旧数据：stage-based → DHP 模型
+    await migrateAllProgress();
 
     setInterval(backupToLocal, 30000);
 
