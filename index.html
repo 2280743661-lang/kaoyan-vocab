@@ -138,6 +138,11 @@ body {
 .flashcard .fc-example-cn { font-size: 13px; color: var(--text2); margin-top: 4px; display: none; text-align: center; }
 .flashcard .fc-example-cn.show { display: block; }
 .flashcard .hint { color: var(--text2); font-size: 13px; margin-top: 20px; }
+.flashcard.tag-hard { border: 3px solid #e94560; box-shadow: 0 0 20px rgba(233,69,96,0.3); }
+.flashcard.tag-ok { border: 3px solid #fbbf24; box-shadow: 0 0 20px rgba(251,191,36,0.3); }
+.flashcard .revisit-tag { position: absolute; top: 12px; left: 12px; font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 8px; pointer-events: none; }
+.flashcard .revisit-tag.hard { background: rgba(233,69,96,0.2); color: #e94560; }
+.flashcard .revisit-tag.ok { background: rgba(251,191,36,0.2); color: #fbbf24; }
 .flashcard-buttons {
     display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-top: 16px;
 }
@@ -210,6 +215,51 @@ body {
 .toast.show { display: block; animation: fadeInUp 0.3s; }
 @keyframes fadeInUp { from { opacity: 0; transform: translateX(-50%) translateY(20px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
 
+/* Celebration overlay */
+#celebration {
+    position: fixed; inset: 0; z-index: 300; display: none;
+    align-items: center; justify-content: center;
+    background: rgba(0,0,0,0.6); backdrop-filter: blur(4px);
+}
+#celebration.show { display: flex; animation: fadeIn 0.3s; }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+.celebration-content {
+    text-align: center; animation: bounceIn 0.5s;
+}
+@keyframes bounceIn {
+    0% { transform: scale(0.3); opacity: 0; }
+    50% { transform: scale(1.05); }
+    70% { transform: scale(0.95); }
+    100% { transform: scale(1); opacity: 1; }
+}
+.confetti { position: fixed; top: -10px; z-index: 301; animation: confettiFall 3s ease-in forwards; pointer-events: none; }
+@keyframes confettiFall {
+    0% { transform: translateY(0) rotate(0deg); opacity: 1; }
+    100% { transform: translateY(100vh) rotate(720deg); opacity: 0; }
+}
+
+/* Streak fire animation */
+.streak-fire { display: inline-block; animation: fireFlicker 0.5s infinite alternate; }
+@keyframes fireFlicker {
+    0% { transform: scale(1) rotate(-2deg); }
+    100% { transform: scale(1.1) rotate(2deg); }
+}
+
+/* Study timer */
+#study-timer {
+    position: fixed; top: 8px; right: 12px; z-index: 50;
+    background: var(--surface); padding: 4px 10px; border-radius: 8px;
+    font-size: 11px; color: var(--text2); border: 1px solid rgba(255,255,255,0.05);
+}
+
+/* Progress bar pulse */
+.progress-fill.pulse { animation: progressPulse 2s ease-in-out; }
+@keyframes progressPulse {
+    0% { filter: brightness(1); }
+    50% { filter: brightness(1.4); }
+    100% { filter: brightness(1); }
+}
+
 /* Search */
 .search-box {
     width: 100%; padding: 12px 16px; background: var(--surface2); border: none;
@@ -257,6 +307,8 @@ body {
 </div>
 
 <div id="toast" class="toast"></div>
+<div id="celebration"><div class="celebration-content"><div style="font-size:64px" id="celebration-icon">&#x1F389;</div><div style="font-size:24px;font-weight:700;margin:12px 0" id="celebration-text">今日目标达成！</div><div style="font-size:14px;color:var(--text2)" id="celebration-sub"></div><button onclick="closeCelebration()" style="margin-top:20px;padding:10px 28px;border:none;border-radius:10px;font-size:14px;background:var(--accent);color:#000;cursor:pointer;font-weight:600">继续加油</button></div></div>
+<div id="study-timer">&#x23F1; <span id="timer-display">00:00</span></div>
 
 <!-- Pages -->
 <div id="page-home" class="page active">
@@ -371,8 +423,10 @@ body {
     </div>
     <div id="quiz-done" class="empty-state" style="display:none">
         <div class="icon">&#x1F4AA;</div>
-        <p>今日复习已完成！</p>
+        <p>本轮复习完成！</p>
         <p style="font-size:13px;margin-top:8px" id="quiz-done-summary"></p>
+        <button id="quiz-next-round" style="display:none;margin-top:16px;padding:14px 32px;border:none;border-radius:12px;font-size:15px;font-weight:600;background:var(--accent);color:#000;cursor:pointer" onclick="startNextRound()">开始下一轮</button>
+        <p style="font-size:12px;color:var(--text2);margin-top:8px" id="quiz-round-info"></p>
     </div>
 </div>
 
@@ -1016,10 +1070,10 @@ async function renderHome() {
     const streakLabel = streakInfo.freezeUsedNow ? '连续学习天 (已用保护)' : '连续学习天';
     document.getElementById('home-stats').innerHTML = `
         <div class="stat-card" id="due-words-card" style="cursor:pointer"><div class="num blue">${dueWords.length}</div><div class="label">待复习 点击进入 →</div></div>
-        <div class="stat-card"><div class="num green">${reviewed}</div><div class="label">已复习</div></div>
-        <div class="stat-card"><div class="num yellow">${newWords}</div><div class="label">待学新词</div></div>
-        <div class="stat-card"><div class="num red">${mastered}</div><div class="label">已掌握</div></div>
-        <div class="stat-card"><div class="num" style="color:#fbbf24">${streakInfo.count}</div><div class="label">${streakLabel}</div></div>
+        <div class="stat-card" id="reviewed-card" style="cursor:pointer"><div class="num green">${reviewed}</div><div class="label">已复习 点击查看 →</div></div>
+        <div class="stat-card" id="new-words-card" style="cursor:pointer"><div class="num yellow">${newWords}</div><div class="label">待学新词 点击学习 →</div></div>
+        <div class="stat-card" id="mastered-card" style="cursor:pointer"><div class="num red">${mastered}</div><div class="label">已掌握 点击查看 →</div></div>
+        <div class="stat-card"><div class="num" style="color:#fbbf24"><span class="streak-fire">&#x1F525;</span>${streakInfo.count}</div><div class="label">${streakLabel}</div></div>
     `;
 
     // 每日一句
@@ -1028,17 +1082,25 @@ async function renderHome() {
     document.getElementById('daily-tip-author').textContent = tip.author ? `— ${tip.author}` : '';
 
     // Click 待复习 → 跳转到 practice tab
-    document.getElementById('due-words-card').onclick = () => {
+    function navigateToTab(tab) {
         document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
         document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-        document.querySelector('.tab-btn[data-tab="practice"]').classList.add('active');
-        document.getElementById('page-practice').classList.add('active');
-        initPractice();
-    };
+        document.querySelector(`.tab-btn[data-tab="${tab}"]`).classList.add('active');
+        document.getElementById('page-' + tab).classList.add('active');
+        if (tab === 'practice') initPractice();
+        if (tab === 'flashcard') initFlashcard();
+        if (tab === 'report') renderReport();
+    }
+    document.getElementById('due-words-card').onclick = () => navigateToTab('practice');
+    document.getElementById('reviewed-card').onclick = () => navigateToTab('report');
+    document.getElementById('new-words-card').onclick = () => navigateToTab('flashcard');
+    document.getElementById('mastered-card').onclick = () => navigateToTab('report');
 
     const target = state.dailyTarget;
     const pct = Math.min(100, Math.round(reviewed / target * 100));
-    document.getElementById('today-progress').style.width = pct + '%';
+    animateProgressBar(document.getElementById('today-progress'), pct);
+    const allStats = await getStatsForDate(today());
+    checkDailyCelebration(allStats);
 
     const tasks = [];
     if (dueWords.length > 0) tasks.push({ text: `复习 ${dueWords.length} 个到期单词`, type: 'review', tag: `${dueWords.length}词` });
@@ -1241,6 +1303,25 @@ function showFlashcard() {
     document.getElementById('fc-example-cn').classList.remove('show');
     document.getElementById('fc-hint').textContent = '点击显示释义 | ←不认识 认识→ 模糊↑ | 空格翻牌';
 
+    // 颜色标签：不认识红色/模糊黄色
+    const fcCard = document.getElementById('fc-card');
+    fcCard.classList.remove('tag-hard', 'tag-ok');
+    const existingTag = fcCard.querySelector('.revisit-tag');
+    if (existingTag) existingTag.remove();
+    if (w._revisit === 'hard' || state.fcHardIds.has(w.id)) {
+        fcCard.classList.add('tag-hard');
+        const tag = document.createElement('div');
+        tag.className = 'revisit-tag hard';
+        tag.textContent = '不认识';
+        fcCard.appendChild(tag);
+    } else if (w._revisit === 'ok' || state.fcOkIds.has(w.id)) {
+        fcCard.classList.add('tag-ok');
+        const tag = document.createElement('div');
+        tag.className = 'revisit-tag ok';
+        tag.textContent = '模糊';
+        fcCard.appendChild(tag);
+    }
+
     // 收藏按钮
     const favBtn = document.getElementById('fc-fav-btn');
     favBtn.textContent = isFavorite(w.id) ? '★' : '☆';
@@ -1288,6 +1369,7 @@ async function handleFCResponse(confidence) {
 
     if (confidence <= 1 && requeueCount < maxRequeue && state.fcQueue.length < 500) {
         w._requeueCount = requeueCount + 1;
+        w._revisit = confidence === 0 ? 'hard' : 'ok';
         // 不认识：5-10个词后再出现；模糊：15-20个词后再出现
         const gap = confidence === 0
             ? 5 + Math.floor(Math.random() * 6)
@@ -1512,34 +1594,46 @@ function bindSpellingEvents() {
     });
 }
 
-// Practice - 待复习（优先级：不认识 > 模糊 > 到期复习 > 随机已学）
+// Practice - 待复习（DHP-MMC 算法 + 轮次机制）
+// 轮次key：每轮结束后，不认识的词保留到下一轮
+const PRACTICE_ROUND_KEY = 'practice_round';
+const PRACTICE_HARD_KEY = 'practice_hard_ids';
+
+function loadPracticeRound() {
+    try {
+        const round = parseInt(localStorage.getItem(PRACTICE_ROUND_KEY) || '0');
+        const hardIds = JSON.parse(localStorage.getItem(PRACTICE_HARD_KEY) || '[]');
+        return { round, hardIds };
+    } catch { return { round: 0, hardIds: [] }; }
+}
+
+function savePracticeRound(round, hardIds) {
+    localStorage.setItem(PRACTICE_ROUND_KEY, round.toString());
+    localStorage.setItem(PRACTICE_HARD_KEY, JSON.stringify(hardIds));
+}
+
 async function initPractice() {
     const allProg = await getAllProgress();
-
-    // Get pending hard/uncertain words from flashcard session
-    let pendingHardIds = [];
-    let pendingOkIds = [];
-    try {
-        const raw = localStorage.getItem(LEARNED_IDS_KEY);
-        if (raw) pendingHardIds = JSON.parse(raw);
-    } catch (e) {}
-
-    // Get today's flashcard session data for ok words
-    try {
-        const session = loadFCSession();
-        if (session) {
-            pendingOkIds = (session.okIds || []).filter(id => !pendingHardIds.includes(id));
-        }
-    } catch (e) {}
-
+    const { round, hardIds: prevHardIds } = loadPracticeRound();
     const dueWords = getDueWords(allProg);
     const learnedIdSet = new Set(allProg.map(p => p.wordId));
+
+    // 当前轮标记为不认识的词（上一轮结束后保留的）
+    let carryHardIds = prevHardIds;
+
+    // 同时合并今天认词中标记为不认识的词
+    let fcHardIds = [];
+    try {
+        const raw = localStorage.getItem(LEARNED_IDS_KEY);
+        if (raw) fcHardIds = JSON.parse(raw);
+    } catch (e) {}
+    const allHardIds = [...new Set([...carryHardIds, ...fcHardIds])];
 
     let pool = [];
     const poolIds = new Set();
 
-    // Priority 1: "不认识" words from today's flashcard, sorted by urgency desc
-    const hardWords = pendingHardIds
+    // P1: 不认识的词（上一轮 + 今日认词），按DHP紧急度排序
+    const hardWords = allHardIds
         .map(id => { const p = allProg.find(x => x.wordId === id); return p ? { word: words.find(w => w.id === id), urgency: calcUrgency(p) } : null; })
         .filter(x => x && x.word)
         .sort((a, b) => b.urgency - a.urgency);
@@ -1548,14 +1642,7 @@ async function initPractice() {
         if (!poolIds.has(w.id)) { pool.push(w); poolIds.add(w.id); }
     }
 
-    // Priority 2: "模糊" words from today's flashcard
-    for (const id of pendingOkIds) {
-        if (pool.length >= state.quizCount) break;
-        const w = words.find(x => x.id === id);
-        if (w && !poolIds.has(w.id)) { pool.push(w); poolIds.add(w.id); }
-    }
-
-    // Priority 3: Due review words (DHP到期), sorted by urgency desc
+    // P2: 到期复习词（DHP-MMC），按紧急度排序
     const dueSorted = dueWords
         .filter(p => !poolIds.has(p.wordId))
         .sort((a, b) => calcUrgency(b) - calcUrgency(a));
@@ -1565,7 +1652,7 @@ async function initPractice() {
         if (w && !poolIds.has(w.id)) { pool.push(w); poolIds.add(w.id); }
     }
 
-    // Priority 4: Other learned words, sorted by urgency (most urgent first)
+    // P3: 其他已学词，按紧急度排序
     if (pool.length < state.quizCount) {
         const otherLearned = allProg
             .filter(p => !poolIds.has(p.wordId) && !dueWords.find(d => d.wordId === p.wordId))
@@ -1577,7 +1664,7 @@ async function initPractice() {
         }
     }
 
-    // Priority 5: Random new words
+    // P4: 新词补充
     if (pool.length < state.quizCount) {
         const newWords = words.filter(w => !learnedIdSet.has(w.id) && !poolIds.has(w.id));
         shuffle(newWords);
@@ -1588,13 +1675,14 @@ async function initPractice() {
         }
     }
 
-    // Clear pending practice list
+    // 清除今日认词暂存
     localStorage.removeItem(LEARNED_IDS_KEY);
 
     if (pool.length === 0) {
         document.getElementById('quiz-container').style.display = 'none';
         document.getElementById('quiz-done').style.display = 'block';
         document.getElementById('quiz-done-summary').textContent = '暂无单词可练！';
+        document.getElementById('quiz-next-round').style.display = 'none';
         return;
     }
 
@@ -1603,6 +1691,7 @@ async function initPractice() {
     state.quizWords = pool.slice(0, state.quizCount);
     state.quizIdx = 0;
     state.quizCorrect = 0;
+    state.quizHardIds = new Set();
     showQuiz();
 }
 
@@ -1610,8 +1699,24 @@ function showQuiz() {
     if (state.quizIdx >= state.quizWords.length) {
         document.getElementById('quiz-container').style.display = 'none';
         document.getElementById('quiz-done').style.display = 'block';
+        const rate = Math.round(state.quizCorrect/state.quizWords.length*100);
         document.getElementById('quiz-done-summary').textContent =
-            `正确率: ${Math.round(state.quizCorrect/state.quizWords.length*100)}% (${state.quizCorrect}/${state.quizWords.length})`;
+            `正确率: ${rate}% (${state.quizCorrect}/${state.quizWords.length})`;
+
+        // 保存不认识的词到下一轮
+        const { round } = loadPracticeRound();
+        const hardIds = Array.from(state.quizHardIds || []);
+        savePracticeRound(round + 1, hardIds);
+
+        const nextBtn = document.getElementById('quiz-next-round');
+        const roundInfo = document.getElementById('quiz-round-info');
+        if (hardIds.length > 0) {
+            nextBtn.style.display = 'inline-block';
+            roundInfo.textContent = `第${round + 1}轮完成 | ${hardIds.length}个不认识的词将保留到下一轮`;
+        } else {
+            nextBtn.style.display = 'none';
+            roundInfo.textContent = `第${round + 1}轮完成 | 没有不认识的词，全部掌握！`;
+        }
         return;
     }
 
@@ -1655,6 +1760,7 @@ function showQuiz() {
                 document.getElementById('quiz-result-area').innerHTML =
                     `<div class="quiz-result wrong">✗ 错误！正确答案: ${w.meaning}</div>`;
                 recordReview(w.id, 0, 'practice');
+                state.quizHardIds.add(w.id);
             }
 
             document.getElementById('quiz-result-area').innerHTML +=
@@ -1671,6 +1777,10 @@ document.getElementById('quiz-next').onclick = () => {
     state.quizIdx++;
     showQuiz();
 };
+
+function startNextRound() {
+    initPractice();
+}
 
 // Reports
 async function renderReport() {
@@ -2251,27 +2361,40 @@ async function renderModuleStats() {
     const practiceRate = s.practiceCount > 0 ? Math.round((s.practiceCorrect || 0) / s.practiceCount * 100) : 0;
 
     document.getElementById('module-stats').innerHTML = `
-        <div style="background:var(--surface2);border-radius:12px;padding:12px">
+        <div class="module-stat-card" data-tab="browse" style="background:var(--surface2);border-radius:12px;padding:12px;cursor:pointer">
             <div style="font-size:12px;color:var(--text2);margin-bottom:6px">刷词</div>
             <div style="font-size:22px;font-weight:700;color:var(--accent)">${s.browseCount || 0}</div>
-            <div style="font-size:11px;color:var(--text2)">今日浏览</div>
+            <div style="font-size:11px;color:var(--text2)">今日浏览 点击进入 →</div>
         </div>
-        <div style="background:var(--surface2);border-radius:12px;padding:12px">
+        <div class="module-stat-card" data-tab="flashcard" style="background:var(--surface2);border-radius:12px;padding:12px;cursor:pointer">
             <div style="font-size:12px;color:var(--text2);margin-bottom:6px">认词</div>
             <div style="font-size:22px;font-weight:700;color:var(--success)">${fcTotal}</div>
             <div style="font-size:11px;color:var(--text2)">不认识${s.fcHard||0} 模糊${s.fcOk||0} 认识${s.fcEasy||0}</div>
         </div>
-        <div style="background:var(--surface2);border-radius:12px;padding:12px">
+        <div class="module-stat-card" data-tab="spelling" style="background:var(--surface2);border-radius:12px;padding:12px;cursor:pointer">
             <div style="font-size:12px;color:var(--text2);margin-bottom:6px">拼写</div>
             <div style="font-size:22px;font-weight:700;color:var(--warning)">${s.spellingCount || 0}</div>
-            <div style="font-size:11px;color:var(--text2)">正确率 ${spellingRate}%</div>
+            <div style="font-size:11px;color:var(--text2)">正确率 ${spellingRate}% 点击进入 →</div>
         </div>
-        <div style="background:var(--surface2);border-radius:12px;padding:12px">
+        <div class="module-stat-card" data-tab="practice" style="background:var(--surface2);border-radius:12px;padding:12px;cursor:pointer">
             <div style="font-size:12px;color:var(--text2);margin-bottom:6px">待复习</div>
             <div style="font-size:22px;font-weight:700;color:var(--accent2)">${s.practiceCount || 0}</div>
-            <div style="font-size:11px;color:var(--text2)">正确率 ${practiceRate}% | 待复习${dueCount}</div>
+            <div style="font-size:11px;color:var(--text2)">正确率 ${practiceRate}% | 待复习${dueCount} 点击进入 →</div>
         </div>
     `;
+    document.querySelectorAll('.module-stat-card').forEach(card => {
+        card.onclick = () => {
+            const tab = card.dataset.tab;
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+            document.querySelector(`.tab-btn[data-tab="${tab}"]`).classList.add('active');
+            document.getElementById('page-' + tab).classList.add('active');
+            if (tab === 'browse') renderBrowse();
+            if (tab === 'flashcard') initFlashcard();
+            if (tab === 'spelling') initSpelling();
+            if (tab === 'practice') initPractice();
+        };
+    });
 }
 
 // ============================================================
@@ -2619,6 +2742,96 @@ function getStreakWithFreeze() {
 }
 
 // ============================================================
+// Celebration (目标达成庆祝)
+// ============================================================
+let lastCelebratedDate = null;
+
+function checkDailyCelebration(stats) {
+    const t = today();
+    if (lastCelebratedDate === t) return;
+    const reviewed = stats ? (stats.totalCount || 0) : 0;
+    if (reviewed >= state.dailyTarget) {
+        lastCelebratedDate = t;
+        showCelebration(reviewed);
+    }
+}
+
+function showCelebration(count) {
+    const el = document.getElementById('celebration');
+    document.getElementById('celebration-text').textContent = '今日目标达成！';
+    document.getElementById('celebration-sub').textContent = `已完成 ${count} 个单词的学习，坚持就是胜利！`;
+    el.classList.add('show');
+    spawnConfetti();
+}
+
+function closeCelebration() {
+    document.getElementById('celebration').classList.remove('show');
+}
+
+function spawnConfetti() {
+    const colors = ['#00d2ff', '#e94560', '#4ade80', '#fbbf24', '#a78bfa', '#f472b6'];
+    for (let i = 0; i < 40; i++) {
+        const el = document.createElement('div');
+        el.className = 'confetti';
+        el.style.left = Math.random() * 100 + 'vw';
+        el.style.animationDelay = Math.random() * 2 + 's';
+        el.style.animationDuration = (2 + Math.random() * 2) + 's';
+        el.style.fontSize = (12 + Math.random() * 16) + 'px';
+        el.style.color = colors[Math.floor(Math.random() * colors.length)];
+        el.textContent = ['✦', '●', '◆', '★', '♥'][Math.floor(Math.random() * 5)];
+        document.body.appendChild(el);
+        setTimeout(() => el.remove(), 4000);
+    }
+}
+
+// ============================================================
+// Study Timer (学习计时器)
+// ============================================================
+let studyStartTime = null;
+let studyTimerInterval = null;
+
+function initStudyTimer() {
+    studyStartTime = Date.now();
+    updateTimerDisplay();
+    studyTimerInterval = setInterval(updateTimerDisplay, 1000);
+
+    // 页面不可见时暂停计时
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden) {
+            clearInterval(studyTimerInterval);
+        } else {
+            studyTimerInterval = setInterval(updateTimerDisplay, 1000);
+        }
+    });
+}
+
+function updateTimerDisplay() {
+    if (!studyStartTime) return;
+    const elapsed = Math.floor((Date.now() - studyStartTime) / 1000);
+    const h = Math.floor(elapsed / 3600);
+    const m = Math.floor((elapsed % 3600) / 60);
+    const s = elapsed % 60;
+    const display = document.getElementById('timer-display');
+    if (display) {
+        display.textContent = h > 0
+            ? `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`
+            : `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+    }
+}
+
+// ============================================================
+// Enhanced progress bar animation
+// ============================================================
+function animateProgressBar(el, targetPct) {
+    const current = parseFloat(el.style.width) || 0;
+    if (targetPct > current) {
+        el.classList.add('pulse');
+        setTimeout(() => el.classList.remove('pulse'), 2000);
+    }
+    el.style.width = targetPct + '%';
+}
+
+// ============================================================
 // Init
 // ============================================================
 async function init() {
@@ -2671,6 +2884,7 @@ async function init() {
     renderHome();
     renderSettings();
     initReminder();
+    initStudyTimer();
 
     document.querySelector('.tab-btn[data-tab="home"]').click();
 
