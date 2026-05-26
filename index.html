@@ -308,6 +308,25 @@ body {
 
 <div id="toast" class="toast"></div>
 <div id="celebration"><div class="celebration-content"><div style="font-size:64px" id="celebration-icon">&#x1F389;</div><div style="font-size:24px;font-weight:700;margin:12px 0" id="celebration-text">今日目标达成！</div><div style="font-size:14px;color:var(--text2)" id="celebration-sub"></div><button onclick="closeCelebration()" style="margin-top:20px;padding:10px 28px;border:none;border-radius:10px;font-size:14px;background:var(--accent);color:#000;cursor:pointer;font-weight:600">继续加油</button></div></div>
+
+<!-- 单词列表弹窗 -->
+<div id="word-list-modal" style="position:fixed;inset:0;z-index:250;display:none;background:rgba(0,0,0,0.6);backdrop-filter:blur(4px)">
+    <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:16px">
+        <div style="background:var(--surface);border-radius:var(--radius);width:100%;max-width:480px;max-height:80vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,0.5)">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid rgba(255,255,255,0.08)">
+                <div>
+                    <div style="font-size:18px;font-weight:700" id="modal-title">单词列表</div>
+                    <div style="font-size:12px;color:var(--text2);margin-top:2px" id="modal-subtitle"></div>
+                </div>
+                <button onclick="closeWordListModal()" style="background:var(--surface2);border:none;color:var(--text2);width:32px;height:32px;border-radius:50%;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center">&times;</button>
+            </div>
+            <div id="modal-search-wrap" style="padding:8px 16px;display:none">
+                <input id="modal-search" type="text" placeholder="搜索..." style="width:100%;padding:8px 12px;background:var(--surface2);border:none;border-radius:8px;color:var(--text);font-size:13px;outline:none">
+            </div>
+            <div id="modal-word-list" style="flex:1;overflow-y:auto;padding:8px 16px 16px"></div>
+        </div>
+    </div>
+</div>
 <div id="study-timer">&#x23F1; <span id="timer-display">00:00</span></div>
 
 <!-- Pages -->
@@ -1091,10 +1110,21 @@ async function renderHome() {
         if (tab === 'flashcard') initFlashcard();
         if (tab === 'report') renderReport();
     }
-    document.getElementById('due-words-card').onclick = () => navigateToTab('practice');
-    document.getElementById('reviewed-card').onclick = () => navigateToTab('report');
-    document.getElementById('new-words-card').onclick = () => navigateToTab('flashcard');
-    document.getElementById('mastered-card').onclick = () => navigateToTab('report');
+    document.getElementById('due-words-card').onclick = () => showWordListModal('待复习', dueWords.map(p => words.find(w => w.id === p.wordId)).filter(Boolean), '紧急度排序，越靠前越需要复习');
+    document.getElementById('reviewed-card').onclick = async () => {
+        const prog = allProg.filter(p => p.lastReviewDate === today());
+        showWordListModal('今日已复习', prog.map(p => words.find(w => w.id === p.wordId)).filter(Boolean), `共 ${reviewed} 个`);
+    };
+    document.getElementById('new-words-card').onclick = () => {
+        const learnedIds = new Set(allProg.map(p => p.wordId));
+        const unlearned = words.filter(w => !learnedIds.has(w.id));
+        showWordListModal('待学新词', unlearned, `共 ${newWords} 个未学单词`);
+    };
+    document.getElementById('mastered-card').onclick = () => {
+        const masteredList = allProg.filter(p => p.mastered || (p.halfLife && p.halfLife >= MASTERED_HALFLIFE))
+            .map(p => words.find(w => w.id === p.wordId)).filter(Boolean);
+        showWordListModal('已掌握', masteredList, `半衰期>30天，共 ${mastered} 个`);
+    };
 
     const target = state.dailyTarget;
     const pct = Math.min(100, Math.round(reviewed / target * 100));
@@ -2600,6 +2630,12 @@ function clearReminder() {
 // Keyboard Shortcuts (键盘快捷键)
 // ============================================================
 document.addEventListener('keydown', e => {
+    // Escape 关闭弹窗
+    if (e.key === 'Escape') {
+        closeWordListModal();
+        closeCelebration();
+        return;
+    }
     // 只在认词页面激活时生效
     const flashcardPage = document.getElementById('page-flashcard');
     if (!flashcardPage.classList.contains('active')) return;
@@ -2766,6 +2802,48 @@ function showCelebration(count) {
 
 function closeCelebration() {
     document.getElementById('celebration').classList.remove('show');
+}
+
+// ============================================================
+// Word List Modal (单词列表弹窗)
+// ============================================================
+function showWordListModal(title, wordList, subtitle) {
+    const modal = document.getElementById('word-list-modal');
+    document.getElementById('modal-title').textContent = title;
+    document.getElementById('modal-subtitle').textContent = subtitle || '';
+    const searchWrap = document.getElementById('modal-search-wrap');
+    const searchInput = document.getElementById('modal-search');
+    searchWrap.style.display = wordList.length > 10 ? 'block' : 'none';
+    searchInput.value = '';
+
+    function renderList(filter) {
+        let list = wordList;
+        if (filter) {
+            const f = filter.toLowerCase();
+            list = wordList.filter(w => w.word.toLowerCase().includes(f) || (w.meaning && w.meaning.includes(f)));
+        }
+        const container = document.getElementById('modal-word-list');
+        if (list.length === 0) {
+            container.innerHTML = '<div style="text-align:center;color:var(--text2);padding:32px;font-size:13px">没有匹配的单词</div>';
+            return;
+        }
+        container.innerHTML = list.map((w, i) => `
+            <div style="display:flex;align-items:center;padding:10px 0;${i < list.length - 1 ? 'border-bottom:1px solid rgba(255,255,255,0.05)' : ''}">
+                <span style="font-weight:600;color:var(--accent);min-width:100px;font-size:15px">${w.word}</span>
+                <span style="font-size:13px;color:var(--text2);margin-left:8px;flex:1">${w.phonetic || ''}</span>
+                <span style="font-size:13px;color:var(--success);text-align:right;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${w.meaning || ''}</span>
+            </div>
+        `).join('');
+    }
+
+    renderList('');
+    searchInput.oninput = () => renderList(searchInput.value);
+    modal.style.display = 'block';
+    modal.onclick = (e) => { if (e.target === modal || e.target.parentElement === modal) closeWordListModal(); };
+}
+
+function closeWordListModal() {
+    document.getElementById('word-list-modal').style.display = 'none';
 }
 
 function spawnConfetti() {
