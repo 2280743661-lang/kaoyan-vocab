@@ -389,8 +389,11 @@ body {
     </div>
     <div id="fc-done" class="empty-state" style="display:none">
         <div class="icon">&#x1F389;</div>
-        <p>今日认词已完成！</p>
+        <p>本轮认词完成！</p>
         <p style="font-size:13px;margin-top:8px" id="fc-done-summary"></p>
+        <div id="fc-done-detail" style="font-size:12px;color:var(--text2);margin-top:4px"></div>
+        <button id="fc-next-round" style="display:none;margin-top:16px;padding:14px 32px;border:none;border-radius:12px;font-size:15px;font-weight:600;background:var(--accent);color:#000;cursor:pointer">开始下一轮</button>
+        <button id="fc-show-words" style="display:none;margin-top:8px;padding:10px 24px;border:none;border-radius:10px;font-size:13px;background:var(--surface2);color:var(--accent);cursor:pointer">查看本轮薄弱词</button>
     </div>
 </div>
 
@@ -698,6 +701,7 @@ async function migrateAllProgress() {
 const FC_SESSION_KEY = 'fc_session';
 const BROWSE_IDX_KEY = 'browse_idx';
 const LEARNED_IDS_KEY = 'pending_practice';
+const FC_REVIEW_KEY = 'fc_review_ids';
 
 // State
 let words = [];
@@ -712,6 +716,8 @@ let state = {
     fcIdx: 0,
     fcHardIds: new Set(),
     fcOkIds: new Set(),
+    fcHesitateIds: new Set(),
+    fcCardStartTime: 0,
     quizWords: [],
     quizIdx: 0,
     quizCorrect: 0,
@@ -851,7 +857,8 @@ function saveFCSession() {
         queueIds: state.fcQueue.map(w => w.id),
         idx: state.fcIdx,
         hardIds: Array.from(state.fcHardIds),
-        okIds: Array.from(state.fcOkIds)
+        okIds: Array.from(state.fcOkIds),
+        hesitateIds: Array.from(state.fcHesitateIds)
     };
     localStorage.setItem(FC_SESSION_KEY, JSON.stringify(session));
 }
@@ -1212,6 +1219,7 @@ async function initFlashcard() {
         state.fcIdx = session.idx;
         state.fcHardIds = new Set(session.hardIds || []);
         state.fcOkIds = new Set(session.okIds || []);
+        state.fcHesitateIds = new Set(session.hesitateIds || []);
 
         // If queue is somehow shorter than idx or empty, start fresh
         if (state.fcIdx >= state.fcQueue.length && state.fcQueue.length > 0) {
@@ -1234,9 +1242,15 @@ async function initFlashcard() {
     // No session: create new one with exactly dailyTarget (400) words
     const allProg = await getAllProgress();
     const dueWords = getDueWords(allProg);
-    const practicedToday = getReviewedToday(allProg);
 
-    // Collect words: priority = due review (by urgency) > new > random learned
+    // Load review words from last round (hard/ok/hesitate)
+    let reviewIds = [];
+    try {
+        const raw = localStorage.getItem(FC_REVIEW_KEY);
+        if (raw) reviewIds = JSON.parse(raw);
+    } catch (e) {}
+
+    // Collect words: priority = last round hard/ok/hesitate > due review > new > random learned
     const dueWordList = dueWords
         .map(p => ({ word: words.find(w => w.id === p.wordId), urgency: calcUrgency(p) }))
         .filter(x => x.word)
@@ -1251,17 +1265,27 @@ async function initFlashcard() {
     let pool = [];
     const usedIds = new Set();
 
-    // 1. Add due review words first
+    // 1. Add last round's hard/ok/hesitate words first
+    for (const id of reviewIds) {
+        if (pool.length >= state.dailyTarget) break;
+        const w = words.find(x => x.id === id);
+        if (w && !usedIds.has(w.id)) {
+            pool.push(w);
+            usedIds.add(w.id);
+        }
+    }
+
+    // 2. Add due review words
     for (const w of dueWordList) {
+        if (pool.length >= state.dailyTarget) break;
         if (!usedIds.has(w.id)) {
             pool.push(w);
             usedIds.add(w.id);
         }
     }
 
-    // 2. Fill up to dailyTarget with new words
-    const needed = state.dailyTarget - pool.length;
-    if (needed > 0 && unlearnedList.length > 0) {
+    // 3. Fill up to dailyTarget with new words
+    if (pool.length < state.dailyTarget && unlearnedList.length > 0) {
         const shuffledNew = shuffle([...unlearnedList]);
         for (const w of shuffledNew) {
             if (pool.length >= state.dailyTarget) break;
@@ -1272,7 +1296,7 @@ async function initFlashcard() {
         }
     }
 
-    // 3. If still not enough, add previously learned words (not mastered)
+    // 4. If still not enough, add previously learned words (not mastered)
     if (pool.length < state.dailyTarget) {
         const shuffledLearned = shuffle([...learnedList]);
         for (const w of shuffledLearned) {
@@ -1291,6 +1315,7 @@ async function initFlashcard() {
     state.fcIdx = 0;
     state.fcHardIds = new Set();
     state.fcOkIds = new Set();
+    state.fcHesitateIds = new Set();
 
     saveFCSession();
 
@@ -1313,8 +1338,26 @@ function showFlashcard() {
         const total = state.fcIdx;
         const hardCount = state.fcHardIds.size;
         const okCount = state.fcOkIds.size;
+        const hesitateCount = state.fcHesitateIds.size;
+        const easyCount = total - hardCount - okCount;
         document.getElementById('fc-done-summary').textContent =
-            `已完成 ${total} 词 | 不认识 ${hardCount} | 模糊 ${okCount}`;
+            `已完成 ${total} 词`;
+        document.getElementById('fc-done-detail').textContent =
+            `不认识 ${hardCount} | 模糊 ${okCount} | 犹豫 ${hesitateCount} | 认识 ${easyCount}`;
+
+        // Save review words for next round: hard + ok + hesitate
+        const reviewIds = [...new Set([...state.fcHardIds, ...state.fcOkIds, ...state.fcHesitateIds])];
+        if (reviewIds.length > 0) {
+            localStorage.setItem(FC_REVIEW_KEY, JSON.stringify(reviewIds));
+        }
+
+        // Show buttons
+        document.getElementById('fc-next-round').style.display = reviewIds.length > 0 ? 'inline-block' : 'none';
+        document.getElementById('fc-next-round').onclick = startNextFCRound;
+        const hasWeakWords = reviewIds.length > 0;
+        document.getElementById('fc-show-words').style.display = hasWeakWords ? 'inline-block' : 'none';
+        document.getElementById('fc-show-words').onclick = showFCWeakWords;
+
         clearFCSession();
         // Save hard/ok IDs for practice mode
         localStorage.setItem(LEARNED_IDS_KEY, JSON.stringify(Array.from(state.fcHardIds)));
@@ -1367,6 +1410,7 @@ function showFlashcard() {
 
     speak(w.word);
     initSwipeGesture();
+    state.fcCardStartTime = Date.now();
 
     document.getElementById('fc-card').onclick = () => {
         document.getElementById('fc-meaning').classList.add('show');
@@ -1393,6 +1437,12 @@ async function handleFCResponse(confidence) {
         state.fcOkIds.add(w.id);
     }
 
+    // 停留时间追踪：超过8秒视为犹豫词
+    const dwellTime = Date.now() - state.fcCardStartTime;
+    if (dwellTime > 8000 && confidence === 2) {
+        state.fcHesitateIds.add(w.id);
+    }
+
     // 间隔重复调度：不认识/模糊的词按遗忘曲线间隔重新插入队列
     const requeueCount = w._requeueCount || 0;
     const maxRequeue = 2; // 每个词最多重新插入2次
@@ -1411,6 +1461,28 @@ async function handleFCResponse(confidence) {
     state.fcIdx++;
     saveFCSession();
     showFlashcard();
+}
+
+function startNextFCRound() {
+    clearFCSession();
+    state.fcQueue = [];
+    state.fcIdx = 0;
+    state.fcHardIds = new Set();
+    state.fcOkIds = new Set();
+    state.fcHesitateIds = new Set();
+    document.getElementById('fc-done').style.display = 'none';
+    initFlashcard();
+}
+
+function showFCWeakWords() {
+    const reviewIds = [...new Set([...state.fcHardIds, ...state.fcOkIds, ...state.fcHesitateIds])];
+    const weakWords = reviewIds
+        .map(id => words.find(w => w.id === id))
+        .filter(Boolean);
+    const hardCount = state.fcHardIds.size;
+    const okCount = state.fcOkIds.size;
+    const hesitateCount = state.fcHesitateIds.size;
+    showWordListModal('本轮薄弱词', weakWords, `不认识 ${hardCount} | 模糊 ${okCount} | 犹豫 ${hesitateCount}`);
 }
 
 // Spelling - 拼写模式
