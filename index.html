@@ -95,6 +95,18 @@ body {
 .task-list li .tag {
     background: var(--surface2); padding: 2px 8px; border-radius: 6px; font-size: 11px; color: var(--accent); margin-left: auto; flex-shrink: 0;
 }
+.prediction-text {
+    font-size: 13px;
+    color: var(--text);
+    text-align: center;
+    padding: 4px 0;
+}
+.advice-text {
+    font-size: 13px;
+    color: var(--text);
+    text-align: center;
+    padding: 4px 0;
+}
 
 /* Browse Mode */
 .word-card {
@@ -347,6 +359,13 @@ body {
     <div class="card">
         <div class="card-title">待办事项</div>
         <ul class="task-list" id="task-list"></ul>
+    </div>
+    <div class="card" id="study-prediction" style="background:linear-gradient(135deg,rgba(74,222,128,0.08),rgba(0,210,255,0.08));border:1px solid rgba(74,222,128,0.15)"></div>
+    <div class="card" id="study-advice" style="background:linear-gradient(135deg,rgba(251,191,36,0.08),rgba(0,210,255,0.08));border:1px solid rgba(251,191,36,0.15)"></div>
+    <div class="card" id="study-history"></div>
+    <div class="card" id="favorites-card" style="cursor:pointer">
+        <div class="card-title">收藏单词 <span id="favorites-count" style="color:var(--accent)"></span></div>
+        <div id="favorites-preview" style="font-size:13px;color:var(--text2)"></div>
     </div>
     <div class="card">
         <div class="card-title">今日模块进度</div>
@@ -1153,6 +1172,97 @@ async function renderHome() {
 
     // Render module stats
     renderModuleStats();
+
+    // 学习进度预测
+    const totalWords = words.length;
+    const learnedPct = Math.round(totalLearned / totalWords * 100);
+    const daysToFinish = reviewed > 0 ? Math.ceil((totalWords - totalLearned) / reviewed) : Infinity;
+    const finishDate = daysToFinish < 365 ? new Date(Date.now() + daysToFinish * 86400000).toLocaleDateString('zh-CN', { month: 'long', day: 'numeric' }) : '很久以后';
+
+    const predictionEl = document.getElementById('study-prediction');
+    if (predictionEl) {
+        if (totalLearned >= totalWords) {
+            predictionEl.innerHTML = '<div class="prediction-text">恭喜！所有单词已学完！</div>';
+        } else if (reviewed > 0) {
+            predictionEl.innerHTML = `<div class="prediction-text">已学 ${learnedPct}% · 按今日速度，${finishDate}可学完全部 ${totalWords} 词</div>`;
+        } else {
+            predictionEl.innerHTML = `<div class="prediction-text">共 ${totalWords} 词，已学 ${learnedPct}% · 开始学习后可预测完成时间</div>`;
+        }
+    }
+
+    // 学习建议
+    const adviceEl = document.getElementById('study-advice');
+    if (adviceEl) {
+        let advice = '';
+        if (dueWords.length > 50) {
+            advice = '待复习单词较多，建议优先复习，巩固记忆后再学新词';
+        } else if (newWords > 100 && reviewed < 50) {
+            advice = '新词较多，建议每天学习新词，保持节奏';
+        } else if (mastered > totalWords * 0.8) {
+            advice = '已掌握大部分单词，继续保持复习，防止遗忘';
+        } else if (reviewed >= target) {
+            advice = '今日目标已完成，可以适当休息或复习薄弱词';
+        } else {
+            advice = '坚持每天学习，积少成多，考研加油！';
+        }
+        adviceEl.innerHTML = `<div class="advice-text">${advice}</div>`;
+    }
+
+    // 最近学习历史
+    const historyEl = document.getElementById('study-history');
+    if (historyEl) {
+        const allStats = await getAllStats();
+        const recentDays = 7;
+        const historyHtml = [];
+        for (let i = 0; i < recentDays; i++) {
+            const d = new Date();
+            d.setDate(d.getDate() - i);
+            const dateStr = d.toISOString().split('T')[0];
+            const dayStats = allStats.find(s => s.date === dateStr);
+            const count = dayStats ? (dayStats.totalCount || 0) : 0;
+            const dayName = d.toLocaleDateString('zh-CN', { weekday: 'short' });
+            const isToday = i === 0;
+            const barHeight = Math.min(100, count / target * 100);
+            historyHtml.push(`
+                <div style="display:flex;flex-direction:column;align-items:center;gap:4px;flex:1">
+                    <div style="width:100%;height:60px;background:var(--surface2);border-radius:6px;position:relative;overflow:hidden">
+                        <div style="position:absolute;bottom:0;left:0;right:0;height:${barHeight}%;background:${isToday ? 'var(--accent)' : 'rgba(0,210,255,0.4)'};border-radius:6px"></div>
+                    </div>
+                    <div style="font-size:11px;color:${isToday ? 'var(--accent)' : 'var(--text2)'}">${dayName}</div>
+                    <div style="font-size:10px;color:var(--text2)">${count}词</div>
+                </div>
+            `);
+        }
+        historyEl.innerHTML = `
+            <div class="card-title">最近${recentDays}天学习</div>
+            <div style="display:flex;gap:6px">${historyHtml.join('')}</div>
+        `;
+    }
+
+    // 收藏单词
+    const favorites = getFavorites();
+    const favCountEl = document.getElementById('favorites-count');
+    const favPreviewEl = document.getElementById('favorites-preview');
+    const favCardEl = document.getElementById('favorites-card');
+    if (favCountEl && favPreviewEl && favCardEl) {
+        favCountEl.textContent = favorites.length > 0 ? `(${favorites.length})` : '';
+        if (favorites.length > 0) {
+            const favWords = favorites.slice(0, 3).map(id => {
+                const w = words.find(w => w.id === id);
+                return w ? w.word : '';
+            }).filter(Boolean);
+            favPreviewEl.textContent = favorites.length > 3
+                ? `${favWords.join('、')} 等${favorites.length}个单词`
+                : `${favWords.join('、')}`;
+            favCardEl.onclick = () => {
+                const favWordList = favorites.map(id => words.find(w => w.id === id)).filter(Boolean);
+                showWordListModal('收藏单词', favWordList, `共 ${favorites.length} 个`);
+            };
+        } else {
+            favPreviewEl.textContent = '点击单词卡片可收藏';
+            favCardEl.onclick = null;
+        }
+    }
 }
 
 // Browse
@@ -1265,9 +1375,11 @@ async function initFlashcard() {
     let pool = [];
     const usedIds = new Set();
 
-    // 1. Add last round's hard/ok/hesitate words first
-    for (const id of reviewIds) {
-        if (pool.length >= state.dailyTarget) break;
+    // 1. Add last round's hard/ok/hesitate words (limit to 30% of dailyTarget)
+    const maxReviewCount = Math.floor(state.dailyTarget * 0.3);
+    const shuffledReview = shuffle([...reviewIds]);
+    for (const id of shuffledReview) {
+        if (pool.length >= maxReviewCount) break;
         const w = words.find(x => x.id === id);
         if (w && !usedIds.has(w.id)) {
             pool.push(w);
