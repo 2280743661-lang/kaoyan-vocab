@@ -540,7 +540,7 @@ body {
                 <div><span style="color:var(--success);font-weight:600" id="learned-count">0</span></div>
             </div>
             <div class="setting-item">
-                <div><div class="label">熟练单词</div><div class="desc">半衰期>30天</div></div>
+                <div><div class="label">熟练单词</div><div class="desc">半衰期>15天或连续认识5次</div></div>
                 <div><span style="color:var(--warning);font-weight:600" id="mastered-count">0</span></div>
             </div>
         </div>
@@ -599,7 +599,8 @@ const LOG2_INV_TARGET = Math.log2(1 / TARGET_RECALL); // ≈ 0.2345
 const INITIAL_HALFLIFE = 0.5;         // 初始半衰期（小时）= 30分钟
 const INITIAL_STABILITY = 2.5;        // 初始稳定性因子
 const INITIAL_DIFFICULTY = 0.3;       // 初始难度
-const MASTERED_HALFLIFE = 720;        // 半衰期 > 30天 = 已掌握
+const MASTERED_HALFLIFE = 360;        // 半衰期 > 15天 = 已掌握
+const MASTERED_STREAK = 5;           // 或连续认识5次 = 已掌握
 
 // 计算当前召回概率: P = 2^(-t/halfLife)
 function calcRecallProb(halfLife, lastReview) {
@@ -721,6 +722,7 @@ const FC_SESSION_KEY = 'fc_session';
 const BROWSE_IDX_KEY = 'browse_idx';
 const LEARNED_IDS_KEY = 'pending_practice';
 const FC_REVIEW_KEY = 'fc_review_ids';
+const FC_EASY_KEY = 'fc_easy_ids';
 
 // State
 let words = [];
@@ -998,8 +1000,8 @@ async function recordReview(wordId, confidence, source) {
     else if (confidence === 1) correctStreak = Math.max(0, correctStreak - 1);
     else correctStreak = 0;
 
-    // 已掌握：半衰期 > 30天
-    const mastered = updated.halfLife >= MASTERED_HALFLIFE ? 1 : 0;
+    // 已掌握：半衰期 > 15天 或 连续认识5次
+    const mastered = (updated.halfLife >= MASTERED_HALFLIFE || correctStreak >= MASTERED_STREAK) ? 1 : 0;
 
     await saveProgress(wordId, {
         wordId,
@@ -1149,7 +1151,7 @@ async function renderHome() {
     document.getElementById('mastered-card').onclick = () => {
         const masteredList = allProg.filter(p => p.mastered || (p.halfLife && p.halfLife >= MASTERED_HALFLIFE))
             .map(p => words.find(w => w.id === p.wordId)).filter(Boolean);
-        showWordListModal('已掌握', masteredList, `半衰期>30天，共 ${mastered} 个`);
+        showWordListModal('已掌握', masteredList, `半衰期>15天或连续认识5次，共 ${mastered} 个`);
     };
 
     const target = state.dailyTarget;
@@ -1360,23 +1362,30 @@ async function initFlashcard() {
         if (raw) reviewIds = JSON.parse(raw);
     } catch (e) {}
 
+    // Load last round's easy words to exclude from this round
+    let lastEasyIds = new Set();
+    try {
+        const raw = localStorage.getItem(FC_EASY_KEY);
+        if (raw) lastEasyIds = new Set(JSON.parse(raw));
+    } catch (e) {}
+
     // Collect words: priority = last round hard/ok/hesitate > due review > new > random learned
     const dueWordList = dueWords
         .map(p => ({ word: words.find(w => w.id === p.wordId), urgency: calcUrgency(p) }))
-        .filter(x => x.word)
+        .filter(x => x.word && !lastEasyIds.has(x.word.id))
         .sort((a, b) => b.urgency - a.urgency)
         .map(x => x.word);
     const allLearnedIds = new Set(allProg.map(p => p.wordId));
     const unlearnedList = words.filter(w => !allLearnedIds.has(w.id));
     const learnedList = allProg.filter(p => !p.mastered && (!p.halfLife || p.halfLife < MASTERED_HALFLIFE))
         .map(p => words.find(w => w.id === p.wordId))
-        .filter(w => w && !dueWords.find(d => d.wordId === w.id));
+        .filter(w => w && !dueWords.find(d => d.wordId === w.id) && !lastEasyIds.has(w.id));
 
     let pool = [];
     const usedIds = new Set();
 
-    // 1. Add last round's hard/ok/hesitate words (limit to 30% of dailyTarget)
-    const maxReviewCount = Math.floor(state.dailyTarget * 0.3);
+    // 1. Add last round's hard/ok/hesitate words (limit to 15% of dailyTarget)
+    const maxReviewCount = Math.floor(state.dailyTarget * 0.15);
     const shuffledReview = shuffle([...reviewIds]);
     for (const id of shuffledReview) {
         if (pool.length >= maxReviewCount) break;
@@ -1462,6 +1471,11 @@ function showFlashcard() {
         if (reviewIds.length > 0) {
             localStorage.setItem(FC_REVIEW_KEY, JSON.stringify(reviewIds));
         }
+
+        // Save easy word IDs to exclude from next round
+        const allQueueIds = state.fcQueue.map(w => w.id);
+        const easyIds = allQueueIds.filter(id => !state.fcHardIds.has(id) && !state.fcOkIds.has(id) && !state.fcHesitateIds.has(id));
+        localStorage.setItem(FC_EASY_KEY, JSON.stringify(easyIds));
 
         // Show buttons
         document.getElementById('fc-next-round').style.display = reviewIds.length > 0 ? 'inline-block' : 'none';
@@ -1852,7 +1866,6 @@ async function initPractice() {
         .filter(x => x && x.word)
         .sort((a, b) => b.urgency - a.urgency);
     for (const { word: w } of hardWords) {
-        if (pool.length >= state.quizCount) break;
         if (!poolIds.has(w.id)) { pool.push(w); poolIds.add(w.id); }
     }
 
@@ -1861,32 +1874,25 @@ async function initPractice() {
         .filter(p => !poolIds.has(p.wordId))
         .sort((a, b) => calcUrgency(b) - calcUrgency(a));
     for (const p of dueSorted) {
-        if (pool.length >= state.quizCount) break;
         const w = words.find(x => x.id === p.wordId);
         if (w && !poolIds.has(w.id)) { pool.push(w); poolIds.add(w.id); }
     }
 
     // P3: 其他已学词，按紧急度排序
-    if (pool.length < state.quizCount) {
-        const otherLearned = allProg
-            .filter(p => !poolIds.has(p.wordId) && !dueWords.find(d => d.wordId === p.wordId))
-            .sort((a, b) => calcUrgency(b) - calcUrgency(a));
-        for (const p of otherLearned) {
-            if (pool.length >= state.quizCount) break;
-            const w = words.find(x => x.id === p.wordId);
-            if (w && !poolIds.has(w.id)) { pool.push(w); poolIds.add(w.id); }
-        }
+    const otherLearned = allProg
+        .filter(p => !poolIds.has(p.wordId) && !dueWords.find(d => d.wordId === p.wordId))
+        .sort((a, b) => calcUrgency(b) - calcUrgency(a));
+    for (const p of otherLearned) {
+        const w = words.find(x => x.id === p.wordId);
+        if (w && !poolIds.has(w.id)) { pool.push(w); poolIds.add(w.id); }
     }
 
     // P4: 新词补充
-    if (pool.length < state.quizCount) {
-        const newWords = words.filter(w => !learnedIdSet.has(w.id) && !poolIds.has(w.id));
-        shuffle(newWords);
-        for (const w of newWords) {
-            if (pool.length >= state.quizCount) break;
-            pool.push(w);
-            poolIds.add(w.id);
-        }
+    const newWords = words.filter(w => !learnedIdSet.has(w.id) && !poolIds.has(w.id));
+    shuffle(newWords);
+    for (const w of newWords) {
+        pool.push(w);
+        poolIds.add(w.id);
     }
 
     // 清除今日认词暂存
@@ -1902,7 +1908,7 @@ async function initPractice() {
 
     document.getElementById('quiz-container').style.display = 'block';
     document.getElementById('quiz-done').style.display = 'none';
-    state.quizWords = pool.slice(0, state.quizCount);
+    state.quizWords = pool;
     state.quizIdx = 0;
     state.quizCorrect = 0;
     state.quizHardIds = new Set();
@@ -2014,7 +2020,7 @@ async function renderReport() {
 
     document.getElementById('report-stats').innerHTML = `
         <div class="report-stat"><div class="num">${totalLearned}</div><div class="label">已学单词</div></div>
-        <div class="report-stat"><div class="num">${mastered}</div><div class="label">已掌握(半衰期>30天)</div></div>
+        <div class="report-stat"><div class="num">${mastered}</div><div class="label">已掌握(半衰期>15天或连续5次)</div></div>
         <div class="report-stat"><div class="num">${avgHalfLifeDays}天</div><div class="label">平均半衰期</div></div>
         <div class="report-stat"><div class="num">${avgDifficulty}%</div><div class="label">平均难度</div></div>
     `;
