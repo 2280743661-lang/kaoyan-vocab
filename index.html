@@ -1486,7 +1486,7 @@ function showFlashcard() {
 
         clearFCSession();
         // Save hard/ok IDs for practice mode
-        localStorage.setItem(LEARNED_IDS_KEY, JSON.stringify(Array.from(state.fcHardIds)));
+        localStorage.setItem(LEARNED_IDS_KEY, JSON.stringify([...new Set([...state.fcHardIds, ...state.fcOkIds])]));
         return;
     }
 
@@ -1844,7 +1844,6 @@ async function initPractice() {
     const allProg = await getAllProgress();
     const { round, hardIds: prevHardIds } = loadPracticeRound();
     const dueWords = getDueWords(allProg);
-    const learnedIdSet = new Set(allProg.map(p => p.wordId));
 
     // 当前轮标记为不认识的词（上一轮结束后保留的）
     let carryHardIds = prevHardIds;
@@ -1860,7 +1859,7 @@ async function initPractice() {
     let pool = [];
     const poolIds = new Set();
 
-    // P1: 不认识的词（上一轮 + 今日认词），按DHP紧急度排序
+    // P1: 不认识/模糊的词（上一轮待复习 + 今日认词），按DHP紧急度排序
     const hardWords = allHardIds
         .map(id => { const p = allProg.find(x => x.wordId === id); return p ? { word: words.find(w => w.id === id), urgency: calcUrgency(p) } : null; })
         .filter(x => x && x.word)
@@ -1876,23 +1875,6 @@ async function initPractice() {
     for (const p of dueSorted) {
         const w = words.find(x => x.id === p.wordId);
         if (w && !poolIds.has(w.id)) { pool.push(w); poolIds.add(w.id); }
-    }
-
-    // P3: 其他已学词，按紧急度排序
-    const otherLearned = allProg
-        .filter(p => !poolIds.has(p.wordId) && !dueWords.find(d => d.wordId === p.wordId))
-        .sort((a, b) => calcUrgency(b) - calcUrgency(a));
-    for (const p of otherLearned) {
-        const w = words.find(x => x.id === p.wordId);
-        if (w && !poolIds.has(w.id)) { pool.push(w); poolIds.add(w.id); }
-    }
-
-    // P4: 新词补充
-    const newWords = words.filter(w => !learnedIdSet.has(w.id) && !poolIds.has(w.id));
-    shuffle(newWords);
-    for (const w of newWords) {
-        pool.push(w);
-        poolIds.add(w.id);
     }
 
     // 清除今日认词暂存
