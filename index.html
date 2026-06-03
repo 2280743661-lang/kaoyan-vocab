@@ -498,11 +498,11 @@ body {
         <div class="setting-item">
             <div><div class="label">每日任务量</div><div class="desc">每天新学单词数</div></div>
             <select id="daily-target" style="background:var(--surface2);color:var(--text);border:none;padding:6px 12px;border-radius:8px;font-size:14px">
+                <option value="50">50</option>
+                <option value="100">100</option>
+                <option value="150" selected>150</option>
                 <option value="200">200</option>
                 <option value="300">300</option>
-                <option value="400" selected>400</option>
-                <option value="500">500</option>
-                <option value="600">600</option>
             </select>
         </div>
         <div class="setting-item">
@@ -1351,9 +1351,9 @@ async function initFlashcard() {
         return;
     }
 
-    // No session: create new one with exactly dailyTarget (400) words
+    // No session: create new round
+    // 原则：只推上一轮不认识/模糊的词 + 没推过的新词，不混入到期复习词（到期词由待复习模块处理）
     const allProg = await getAllProgress();
-    const dueWords = getDueWords(allProg);
 
     // Load review words from last round (hard/ok/hesitate)
     let reviewIds = [];
@@ -1369,23 +1369,14 @@ async function initFlashcard() {
         if (raw) lastEasyIds = new Set(JSON.parse(raw));
     } catch (e) {}
 
-    // Collect words: priority = last round hard/ok/hesitate > due review > new > random learned
-    const dueWordList = dueWords
-        .map(p => ({ word: words.find(w => w.id === p.wordId), urgency: calcUrgency(p) }))
-        .filter(x => x.word && !lastEasyIds.has(x.word.id))
-        .sort((a, b) => b.urgency - a.urgency)
-        .map(x => x.word);
     const allLearnedIds = new Set(allProg.map(p => p.wordId));
     const unlearnedList = words.filter(w => !allLearnedIds.has(w.id));
-    const learnedList = allProg.filter(p => !p.mastered && (!p.halfLife || p.halfLife < MASTERED_HALFLIFE))
-        .map(p => words.find(w => w.id === p.wordId))
-        .filter(w => w && !dueWords.find(d => d.wordId === w.id) && !lastEasyIds.has(w.id));
 
     let pool = [];
     const usedIds = new Set();
 
-    // 1. Add last round's hard/ok/hesitate words (limit to 15% of dailyTarget)
-    const maxReviewCount = Math.floor(state.dailyTarget * 0.15);
+    // 1. 上一轮不认识/模糊的词（限20%给新词留空间）
+    const maxReviewCount = Math.floor(state.dailyTarget * 0.2);
     const shuffledReview = shuffle([...reviewIds]);
     for (const id of shuffledReview) {
         if (pool.length >= maxReviewCount) break;
@@ -1396,16 +1387,7 @@ async function initFlashcard() {
         }
     }
 
-    // 2. Add due review words
-    for (const w of dueWordList) {
-        if (pool.length >= state.dailyTarget) break;
-        if (!usedIds.has(w.id)) {
-            pool.push(w);
-            usedIds.add(w.id);
-        }
-    }
-
-    // 3. Fill up to dailyTarget with new words
+    // 2. 填充新词（没学过的）
     if (pool.length < state.dailyTarget && unlearnedList.length > 0) {
         const shuffledNew = shuffle([...unlearnedList]);
         for (const w of shuffledNew) {
@@ -1417,15 +1399,17 @@ async function initFlashcard() {
         }
     }
 
-    // 4. If still not enough, add previously learned words (not mastered)
+    // 3. 新词不够时，补充已学但未掌握的词（排除上轮认识的）
     if (pool.length < state.dailyTarget) {
+        const learnedList = allProg
+            .filter(p => !p.mastered && (!p.halfLife || p.halfLife < MASTERED_HALFLIFE))
+            .map(p => words.find(w => w.id === p.wordId))
+            .filter(w => w && !lastEasyIds.has(w.id) && !usedIds.has(w.id));
         const shuffledLearned = shuffle([...learnedList]);
         for (const w of shuffledLearned) {
             if (pool.length >= state.dailyTarget) break;
-            if (!usedIds.has(w.id)) {
-                pool.push(w);
-                usedIds.add(w.id);
-            }
+            pool.push(w);
+            usedIds.add(w.id);
         }
     }
 
@@ -1826,6 +1810,25 @@ function bindSpellingEvents() {
 // 轮次key：每轮结束后，不认识的词保留到下一轮
 const PRACTICE_ROUND_KEY = 'practice_round';
 const PRACTICE_HARD_KEY = 'practice_hard_ids';
+const PRACTICE_REVIEWED_TODAY_KEY = 'practice_reviewed_today';
+
+function getPracticeReviewedToday() {
+    try {
+        const raw = localStorage.getItem(PRACTICE_REVIEWED_TODAY_KEY);
+        if (!raw) return { date: today(), ids: [] };
+        const data = JSON.parse(raw);
+        if (data.date !== today()) return { date: today(), ids: [] };
+        return data;
+    } catch { return { date: today(), ids: [] }; }
+}
+
+function addPracticeReviewedToday(wordId) {
+    const data = getPracticeReviewedToday();
+    if (!data.ids.includes(wordId)) {
+        data.ids.push(wordId);
+        localStorage.setItem(PRACTICE_REVIEWED_TODAY_KEY, JSON.stringify(data));
+    }
+}
 
 function loadPracticeRound() {
     try {
@@ -1859,7 +1862,12 @@ async function initPractice() {
     let pool = [];
     const poolIds = new Set();
 
+    // 获取今天已复习过的词（切tab不会重复推）
+    const reviewedToday = getPracticeReviewedToday();
+    const reviewedTodayIds = new Set(reviewedToday.ids);
+
     // P1: 不认识/模糊的词（上一轮待复习 + 今日认词），按DHP紧急度排序
+    // 这些词即使今天复习过也要保留（它们是薄弱词，需要额外练习）
     const hardWords = allHardIds
         .map(id => { const p = allProg.find(x => x.wordId === id); return p ? { word: words.find(w => w.id === id), urgency: calcUrgency(p) } : null; })
         .filter(x => x && x.word)
@@ -1869,8 +1877,9 @@ async function initPractice() {
     }
 
     // P2: 到期复习词（DHP-MMC），按紧急度排序
+    // 排除今天已在待复习中复习过的词（切tab不重复）
     const dueSorted = dueWords
-        .filter(p => !poolIds.has(p.wordId))
+        .filter(p => !poolIds.has(p.wordId) && !reviewedTodayIds.has(p.wordId))
         .sort((a, b) => calcUrgency(b) - calcUrgency(a));
     for (const p of dueSorted) {
         const w = words.find(x => x.id === p.wordId);
@@ -1879,6 +1888,12 @@ async function initPractice() {
 
     // 清除今日认词暂存
     localStorage.removeItem(LEARNED_IDS_KEY);
+
+    // 限制每轮最多200词，学生一天复习不了1000个
+    const MAX_PRACTICE_PER_ROUND = 200;
+    if (pool.length > MAX_PRACTICE_PER_ROUND) {
+        pool = pool.slice(0, MAX_PRACTICE_PER_ROUND);
+    }
 
     if (pool.length === 0) {
         document.getElementById('quiz-container').style.display = 'none';
@@ -1949,6 +1964,8 @@ function showQuiz() {
             document.querySelectorAll('.quiz-option').forEach(b => b.dataset.answered = '1');
 
             const isCorrect = btn.dataset.correct === '1';
+            // 标记为今天已复习（切tab不重复推）
+            addPracticeReviewedToday(w.id);
             if (isCorrect) {
                 btn.classList.add('correct');
                 state.quizCorrect++;
@@ -3085,7 +3102,7 @@ function animateProgressBar(el, targetPct) {
 // Init
 // ============================================================
 async function init() {
-    state.dailyTarget = parseInt(localStorage.getItem('dailyTarget') || '400');
+    state.dailyTarget = parseInt(localStorage.getItem('dailyTarget') || '150');
     state.autoSpeak = localStorage.getItem('autoSpeak') !== 'false';
     state.quizCount = parseInt(localStorage.getItem('quizCount') || '10');
 
