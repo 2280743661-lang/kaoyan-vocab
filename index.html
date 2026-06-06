@@ -602,6 +602,68 @@ const INITIAL_DIFFICULTY = 0.3;       // 初始难度
 const MASTERED_HALFLIFE = 360;        // 半衰期 > 15天 = 已掌握
 const MASTERED_STREAK = 5;           // 或连续认识5次 = 已掌握
 
+// 太简单的词，考研不需要复习（小写）
+const SIMPLE_WORDS = new Set([
+    'good','well','bad','big','small','old','new','young','long','short',
+    'high','low','hot','cold','warm','cool','fast','slow','hard','easy',
+    'right','left','up','down','open','close','go','come','get','make',
+    'take','give','put','run','walk','eat','drink','sleep','see','look',
+    'hear','say','tell','ask','think','know','want','need','like','love',
+    'help','try','use','find','keep','let','begin','start','stop','move',
+    'turn','show','play','work','read','write','speak','buy','sell','pay',
+    'send','bring','hold','stand','sit','lie','fall','cut','hit','set',
+    'is','am','are','was','were','be','been','being','have','has','had',
+    'do','does','did','will','would','shall','should','can','could','may',
+    'might','must','the','a','an','this','that','these','those','it','its',
+    'i','me','my','myself','we','our','ours','you','your','yours','he',
+    'him','his','she','her','hers','they','them','their','theirs','who',
+    'what','where','when','why','how','which','if','then','else','so',
+    'and','but','or','not','no','yes','all','any','each','every','both',
+    'few','more','most','much','many','some','such','only','own','same',
+    'than','too','very','just','also','now','here','there','about','into',
+    'over','after','before','between','under','again','once','never','ever',
+    'always','often','sometimes','usually','still','already','yet','even',
+    'man','woman','boy','girl','child','baby','people','person','life',
+    'day','time','year','way','world','hand','part','place','case','week',
+    'company','system','program','question','back','thing','name','head',
+    'home','water','room','mother','area','money','story','fact','month',
+    'lot','side','kind','head','body','eye','face','food','car','city',
+    'night','point','word','door','family','power','end','line','air',
+    'land','idea','level','game','fish','tree','sun','sea','oil','car',
+    'map','art','age','son','age','act','add','age','ago','air','arm',
+    'art','ask','bad','bag','ban','bar','bat','bed','bet','bid','big',
+    'bit','box','boy','bus','but','buy','cap','car','cat','cup','cut',
+    'dad','dam','day','die','dig','dog','dry','due','ear','eat','egg',
+    'end','era','eye','fan','far','fat','few','fit','fix','fly','for',
+    'fun','gap','gas','god','gun','guy','hat','her','him','hip','his',
+    'hit','hot','how','hub','ice','ill','inn','its','job','joy','key',
+    'kid','lab','law','lay','led','leg','let','lid','lip','log','lot',
+    'low','mad','man','map','may','mix','mob','mom','mud','net','new',
+    'nor','not','now','nut','odd','off','oil','old','one','our','out',
+    'owe','own','pad','pan','pat','pay','pen','per','pet','pie','pig',
+    'pin','pit','pop','pot','pub','put','rag','ran','rap','rat','raw',
+    'ray','red','ref','rib','rid','rig','rim','rob','rod','rot','row',
+    'rub','rug','run','sad','sat','saw','say','sea','set','she','sin',
+    'sir','sit','six','ski','sky','sob','son','sow','spy','sub','sue',
+    'sum','sun','tab','tag','tap','tax','tea','ten','the','thy','tie',
+    'tin','tip','toe','ton','too','top','try','tub','two','van','via',
+    'vie','vow','wad','war','was','wax','way','web','wed','wet','who',
+    'why','wig','win','wit','woe','wok','won','woo','wow','yak','yam',
+    'yap','yaw','yea','yes','yet','yew','you','zap','zed','zen','zig',
+    'zip','zoo'
+]);
+
+// 冷却期：刚复习完的词，至少间隔这么久才再推送（毫秒）
+// 遵循遗忘曲线：第1次复习后1小时，第2次后6小时，第3次后24小时...
+function getCooldownMs(prog) {
+    const reviews = prog.totalReviews || 0;
+    if (reviews <= 1) return 1 * 3600000;    // 1小时
+    if (reviews <= 2) return 6 * 3600000;    // 6小时
+    if (reviews <= 4) return 24 * 3600000;   // 1天
+    if (reviews <= 6) return 72 * 3600000;   // 3天
+    return 168 * 3600000;                     // 7天
+}
+
 // 计算当前召回概率: P = 2^(-t/halfLife)
 function calcRecallProb(halfLife, lastReview) {
     if (!halfLife || !lastReview) return 0;
@@ -955,13 +1017,24 @@ function getStreakDisplay() {
 
 function getDueWords(allProg) {
     return allProg.filter(p => {
+        // 过滤太简单的词
+        const w = words.find(x => x.id === p.wordId);
+        if (w && SIMPLE_WORDS.has(w.word.toLowerCase())) return false;
+
+        // 冷却期：刚复习完的词，按遗忘曲线间隔后再推送
+        if (p.lastReview) {
+            const cooldown = getCooldownMs(p);
+            if (Date.now() - p.lastReview < cooldown) return false;
+        }
+
         if (!p.halfLife || !p.lastReview) return p.nextReview && p.nextReview <= Date.now();
         return calcRecallProb(p.halfLife, p.lastReview) <= TARGET_RECALL;
     });
 }
 
 function getNewWordsCount(allProg) {
-    return words.length - allProg.length;
+    const learnedIds = new Set(allProg.map(p => p.wordId));
+    return words.filter(w => !learnedIds.has(w.id) && !SIMPLE_WORDS.has(w.word.toLowerCase())).length;
 }
 
 function getReviewedToday(allProg) {
@@ -1145,7 +1218,7 @@ async function renderHome() {
     };
     document.getElementById('new-words-card').onclick = () => {
         const learnedIds = new Set(allProg.map(p => p.wordId));
-        const unlearned = words.filter(w => !learnedIds.has(w.id));
+        const unlearned = words.filter(w => !learnedIds.has(w.id) && !SIMPLE_WORDS.has(w.word.toLowerCase()));
         showWordListModal('待学新词', unlearned, `共 ${newWords} 个未学单词`);
     };
     document.getElementById('mastered-card').onclick = () => {
@@ -1176,7 +1249,7 @@ async function renderHome() {
     renderModuleStats();
 
     // 学习进度预测
-    const totalWords = words.length;
+    const totalWords = words.filter(w => !SIMPLE_WORDS.has(w.word.toLowerCase())).length;
     const learnedPct = Math.round(totalLearned / totalWords * 100);
     const daysToFinish = reviewed > 0 ? Math.ceil((totalWords - totalLearned) / reviewed) : Infinity;
     const finishDate = daysToFinish < 365 ? new Date(Date.now() + daysToFinish * 86400000).toLocaleDateString('zh-CN', { month: 'long', day: 'numeric' }) : '很久以后';
@@ -1370,7 +1443,7 @@ async function initFlashcard() {
     } catch (e) {}
 
     const allLearnedIds = new Set(allProg.map(p => p.wordId));
-    const unlearnedList = words.filter(w => !allLearnedIds.has(w.id));
+    const unlearnedList = words.filter(w => !allLearnedIds.has(w.id) && !SIMPLE_WORDS.has(w.word.toLowerCase()));
 
     let pool = [];
     const usedIds = new Set();
@@ -1399,12 +1472,12 @@ async function initFlashcard() {
         }
     }
 
-    // 3. 新词不够时，补充已学但未掌握的词（排除上轮认识的）
+    // 3. 新词不够时，补充已学但未掌握的词（排除上轮认识的和简单词）
     if (pool.length < state.dailyTarget) {
         const learnedList = allProg
             .filter(p => !p.mastered && (!p.halfLife || p.halfLife < MASTERED_HALFLIFE))
             .map(p => words.find(w => w.id === p.wordId))
-            .filter(w => w && !lastEasyIds.has(w.id) && !usedIds.has(w.id));
+            .filter(w => w && !lastEasyIds.has(w.id) && !usedIds.has(w.id) && !SIMPLE_WORDS.has(w.word.toLowerCase()));
         const shuffledLearned = shuffle([...learnedList]);
         for (const w of shuffledLearned) {
             if (pool.length >= state.dailyTarget) break;
@@ -1607,16 +1680,16 @@ async function initSpelling() {
         .filter(p => (p.errorCount || 0) > 0 || (p.correctStreak || 0) < 2)
         .sort((a, b) => calcUrgency(b) - calcUrgency(a))
         .map(p => words.find(w => w.id === p.wordId))
-        .filter(Boolean);
+        .filter(w => w && !SIMPLE_WORDS.has(w.word.toLowerCase()));
 
     // 再选待复习的词
     const dueWords = getDueWords(allProg)
         .map(p => words.find(w => w.id === p.wordId))
-        .filter(Boolean);
+        .filter(w => w && !SIMPLE_WORDS.has(w.word.toLowerCase()));
 
     // 选新词补充
     const learnedIds = new Set(allProg.map(p => p.wordId));
-    const newWords = words.filter(w => !learnedIds.has(w.id));
+    const newWords = words.filter(w => !learnedIds.has(w.id) && !SIMPLE_WORDS.has(w.word.toLowerCase()));
 
     let pool = [];
     const poolIds = new Set();
@@ -1636,9 +1709,9 @@ async function initSpelling() {
         if (!poolIds.has(w.id)) { pool.push(w); poolIds.add(w.id); }
     }
 
-    // 如果还不够，随机补充
+    // 如果还不够，随机补充（排除简单词）
     if (pool.length < 10) {
-        const remaining = words.filter(w => !poolIds.has(w.id));
+        const remaining = words.filter(w => !poolIds.has(w.id) && !SIMPLE_WORDS.has(w.word.toLowerCase()));
         shuffle(remaining);
         for (const w of remaining) {
             if (pool.length >= 10) break;
@@ -2360,8 +2433,9 @@ function drawRetentionChart(allProg) {
 async function renderSettings() {
     document.getElementById('daily-target').value = state.dailyTarget;
     document.getElementById('quiz-count').value = state.quizCount;
-    document.getElementById('total-words-count').textContent = words.length;
-    document.getElementById('total-words-info').textContent = '考研英语词汇';
+    const effectiveWords = words.filter(w => !SIMPLE_WORDS.has(w.word.toLowerCase()));
+    document.getElementById('total-words-count').textContent = effectiveWords.length;
+    document.getElementById('total-words-info').textContent = `考研英语词汇（已排除${SIMPLE_WORDS.size}个简单词）`;
 
     const allProg = await getAllProgress();
     document.getElementById('learned-count').textContent = allProg.length;
