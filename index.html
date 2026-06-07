@@ -1884,6 +1884,7 @@ function bindSpellingEvents() {
 const PRACTICE_ROUND_KEY = 'practice_round';
 const PRACTICE_HARD_KEY = 'practice_hard_ids';
 const PRACTICE_REVIEWED_TODAY_KEY = 'practice_reviewed_today';
+const PRACTICE_ROUND_STATE_KEY = 'practice_round_state';
 
 function getPracticeReviewedToday() {
     try {
@@ -1916,7 +1917,41 @@ function savePracticeRound(round, hardIds) {
     localStorage.setItem(PRACTICE_HARD_KEY, JSON.stringify(hardIds));
 }
 
+function savePracticeRoundState(wordIds, quizIdx) {
+    localStorage.setItem(PRACTICE_ROUND_STATE_KEY, JSON.stringify({ wordIds, quizIdx, date: today() }));
+}
+
+function loadPracticeRoundState() {
+    try {
+        const raw = localStorage.getItem(PRACTICE_ROUND_STATE_KEY);
+        if (!raw) return null;
+        const data = JSON.parse(raw);
+        if (data.date !== today()) return null;
+        return data;
+    } catch { return null; }
+}
+
+function clearPracticeRoundState() {
+    localStorage.removeItem(PRACTICE_ROUND_STATE_KEY);
+}
+
 async function initPractice() {
+    // 检查是否有未完成的轮次可以恢复
+    const savedState = loadPracticeRoundState();
+    if (savedState && savedState.wordIds && savedState.wordIds.length > 0 && savedState.quizIdx < savedState.wordIds.length) {
+        const restoredPool = savedState.wordIds.map(id => words.find(w => w.id === id)).filter(Boolean);
+        if (restoredPool.length > 0) {
+            document.getElementById('quiz-container').style.display = 'block';
+            document.getElementById('quiz-done').style.display = 'none';
+            state.quizWords = restoredPool;
+            state.quizIdx = savedState.quizIdx;
+            state.quizCorrect = 0;
+            state.quizHardIds = new Set();
+            showQuiz();
+            return;
+        }
+    }
+
     const allProg = await getAllProgress();
     const { round, hardIds: prevHardIds } = loadPracticeRound();
     const dueWords = getDueWords(allProg);
@@ -1973,6 +2008,7 @@ async function initPractice() {
         document.getElementById('quiz-done').style.display = 'block';
         document.getElementById('quiz-done-summary').textContent = '暂无单词可练！';
         document.getElementById('quiz-next-round').style.display = 'none';
+        clearPracticeRoundState();
         return;
     }
 
@@ -1982,6 +2018,7 @@ async function initPractice() {
     state.quizIdx = 0;
     state.quizCorrect = 0;
     state.quizHardIds = new Set();
+    savePracticeRoundState(pool.map(w => w.id), 0);
     showQuiz();
 }
 
@@ -1993,7 +2030,8 @@ function showQuiz() {
         document.getElementById('quiz-done-summary').textContent =
             `正确率: ${rate}% (${state.quizCorrect}/${state.quizWords.length})`;
 
-        // 保存不认识的词到下一轮
+        // 保存不认识的词到下一轮，清除轮次进度
+        clearPracticeRoundState();
         const { round } = loadPracticeRound();
         const hardIds = Array.from(state.quizHardIds || []);
         savePracticeRound(round + 1, hardIds);
@@ -2067,10 +2105,12 @@ function showQuiz() {
 
 document.getElementById('quiz-next').onclick = () => {
     state.quizIdx++;
+    savePracticeRoundState(state.quizWords.map(w => w.id), state.quizIdx);
     showQuiz();
 };
 
 function startNextRound() {
+    clearPracticeRoundState();
     initPractice();
 }
 
