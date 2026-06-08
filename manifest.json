@@ -1,7 +1,7 @@
 {
   "name": "考研背单词",
   "short_name": "考研词汇",
-  "description": "考研英语词汇记忆系统 - 艾宾浩斯遗忘曲线三重记忆法",
+  "description": "考研英语词汇记忆系统 - DHP智能调度·遗忘曲线优化·三重记忆法",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",

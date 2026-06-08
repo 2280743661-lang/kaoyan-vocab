@@ -314,6 +314,7 @@ body {
 <div id="splash">
     <h1>考研背单词</h1>
     <p>SSP-MMC 智能调度 · DHP 记忆模型</p>
+    <p style="font-size:11px;color:var(--text2);margin-top:4px">v3.0 · 遗忘曲线优化 · 简单词过滤</p>
     <div class="loader"></div>
     <p id="splash-tip" style="font-size:12px;color:var(--text2);margin-top:20px;text-align:center;line-height:1.6"></p>
 </div>
@@ -367,6 +368,10 @@ body {
         <div class="card-title">收藏单词 <span id="favorites-count" style="color:var(--accent)"></span></div>
         <div id="favorites-preview" style="font-size:13px;color:var(--text2)"></div>
     </div>
+    <div class="card" id="weak-words-card" style="cursor:pointer;background:linear-gradient(135deg,rgba(233,69,96,0.08),rgba(0,210,255,0.08));border:1px solid rgba(233,69,96,0.15)">
+        <div class="card-title">薄弱词快速复习 <span id="weak-words-count" style="color:var(--accent2)"></span></div>
+        <div id="weak-words-preview" style="font-size:13px;color:var(--text2)"></div>
+    </div>
     <div class="card">
         <div class="card-title">今日模块进度</div>
         <div id="module-stats" style="display:grid;grid-template-columns:1fr 1fr;gap:8px"></div>
@@ -395,7 +400,7 @@ body {
                 <div class="meaning" id="fc-meaning"></div>
                 <div class="fc-example" id="fc-example"></div>
                 <div class="fc-example-cn" id="fc-example-cn"></div>
-                <div class="hint" id="fc-hint">点击/空格翻牌 | ←不认识 →认识 ↑模糊 | ☆收藏</div>
+                <div class="hint" id="fc-hint">点击/空格翻牌 | ←不认识 →认识 ↑模糊 | ☆收藏 | 手势: 左滑不认识 右滑认识 上滑模糊</div>
                 <button id="fc-fav-btn" style="position:absolute;top:12px;right:12px;background:none;border:none;font-size:20px;cursor:pointer;opacity:0.5;transition:opacity 0.2s" title="双击收藏">☆</button>
             </div>
             <div id="fc-swipe-indicator" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:28px;font-weight:700;opacity:0;transition:opacity 0.15s;pointer-events:none;text-shadow:0 2px 8px rgba(0,0,0,0.5)"></div>
@@ -417,7 +422,7 @@ body {
 </div>
 
 <div id="page-spelling" class="page">
-    <div class="page-header"><h1>拼写</h1><p>看中文释义，拼写英文单词</p></div>
+    <div class="page-header"><h1>拼写</h1><p>看中文释义，拼写英文单词 · 快捷键: 回车确认 Tab显示答案</p></div>
     <div id="spelling-container">
         <div class="quiz-progress" id="sp-progress"></div>
         <div class="card" style="text-align:center;padding:32px 20px">
@@ -451,7 +456,7 @@ body {
 </div>
 
 <div id="page-practice" class="page">
-    <div class="page-header"><h1>待复习</h1><p>按紧急度排序 · 优先复习即将遗忘的词</p></div>
+    <div class="page-header"><h1>待复习</h1><p>按紧急度排序 · 优先复习即将遗忘的词 · 快捷键: 1/2/3/4选答案 空格下一题</p></div>
     <div class="quiz-progress" id="quiz-progress"></div>
     <div id="quiz-container">
         <div class="quiz-question">
@@ -596,14 +601,15 @@ body {
 // ============================================================
 const TARGET_RECALL = 0.85;           // 目标召回率：在记忆衰减到 85% 时复习
 const LOG2_INV_TARGET = Math.log2(1 / TARGET_RECALL); // ≈ 0.2345
-const INITIAL_HALFLIFE = 0.5;         // 初始半衰期（小时）= 30分钟
-const INITIAL_STABILITY = 2.5;        // 初始稳定性因子
+const INITIAL_HALFLIFE = 1.0;         // 初始半衰期（小时）= 1小时（原30分钟太短）
+const INITIAL_STABILITY = 3.0;        // 初始稳定性因子（原2.5太低导致增长慢）
 const INITIAL_DIFFICULTY = 0.3;       // 初始难度
 const MASTERED_HALFLIFE = 360;        // 半衰期 > 15天 = 已掌握
 const MASTERED_STREAK = 5;           // 或连续认识5次 = 已掌握
 
 // 太简单的词，考研不需要复习（小写）
 const SIMPLE_WORDS = new Set([
+    // 基础动词
     'good','well','bad','big','small','old','new','young','long','short',
     'high','low','hot','cold','warm','cool','fast','slow','hard','easy',
     'right','left','up','down','open','close','go','come','get','make',
@@ -630,38 +636,366 @@ const SIMPLE_WORDS = new Set([
     'lot','side','kind','head','body','eye','face','food','car','city',
     'night','point','word','door','family','power','end','line','air',
     'land','idea','level','game','fish','tree','sun','sea','oil','car',
-    'map','art','age','son','age','act','add','age','ago','air','arm',
-    'art','ask','bad','bag','ban','bar','bat','bed','bet','bid','big',
-    'bit','box','boy','bus','but','buy','cap','car','cat','cup','cut',
-    'dad','dam','day','die','dig','dog','dry','due','ear','eat','egg',
-    'end','era','eye','fan','far','fat','few','fit','fix','fly','for',
-    'fun','gap','gas','god','gun','guy','hat','her','him','hip','his',
-    'hit','hot','how','hub','ice','ill','inn','its','job','joy','key',
-    'kid','lab','law','lay','led','leg','let','lid','lip','log','lot',
-    'low','mad','man','map','may','mix','mob','mom','mud','net','new',
-    'nor','not','now','nut','odd','off','oil','old','one','our','out',
-    'owe','own','pad','pan','pat','pay','pen','per','pet','pie','pig',
-    'pin','pit','pop','pot','pub','put','rag','ran','rap','rat','raw',
+    'map','art','age','son','act','add','ago','arm',
+    'ask','bag','ban','bar','bat','bed','bet','bid',
+    'bit','box','bus','but','buy','cap','cat','cup','cut',
+    'dad','dam','die','dig','dog','dry','due','ear','egg',
+    'era','fan','far','fat','fit','fix','fly','for',
+    'fun','gap','gas','god','gun','guy','hat','her','him','hip',
+    'hit','how','hub','ice','ill','inn','its','job','joy','key',
+    'kid','lab','law','lay','led','leg','lid','lip','log',
+    'low','mad','map','may','mix','mob','mom','mud','net',
+    'nor','now','nut','odd','off','one','our','out',
+    'owe','own','pad','pan','pat','pen','per','pet','pie','pig',
+    'pin','pit','pop','pot','pub','rag','ran','rap','rat','raw',
     'ray','red','ref','rib','rid','rig','rim','rob','rod','rot','row',
-    'rub','rug','run','sad','sat','saw','say','sea','set','she','sin',
-    'sir','sit','six','ski','sky','sob','son','sow','spy','sub','sue',
-    'sum','sun','tab','tag','tap','tax','tea','ten','the','thy','tie',
-    'tin','tip','toe','ton','too','top','try','tub','two','van','via',
-    'vie','vow','wad','war','was','wax','way','web','wed','wet','who',
+    'rub','rug','sad','sat','saw','set','she','sin',
+    'sir','sit','ski','sky','sob','sow','spy','sub','sue',
+    'sum','tab','tag','tap','tax','tea','ten','thy','tie',
+    'tin','tip','toe','ton','top','try','tub','two','van','via',
+    'vie','vow','wad','war','wax','web','wed','wet',
     'why','wig','win','wit','woe','wok','won','woo','wow','yak','yam',
-    'yap','yaw','yea','yes','yet','yew','you','zap','zed','zen','zig',
-    'zip','zoo'
+    'yap','yaw','yea','yet','yew','zap','zed','zen','zig',
+    'zip','zoo',
+    // 数字
+    'one','two','three','four','five','six','seven','eight','nine','ten',
+    'eleven','twelve','thirteen','fourteen','fifteen','sixteen','seventeen',
+    'eighteen','nineteen','twenty','hundred','thousand','million','billion',
+    'first','second','third','zero','double','triple','half','quarter',
+    'dozen','pair','couple',
+    // 颜色
+    'blue','green','yellow','black','white','brown','pink','orange','purple','grey','gray',
+    'dark','bright','light','color','colour',
+    // 身体部位
+    'nose','mouth','finger','tooth','hair','heart','brain','neck','shoulder','knee',
+    'stomach','chest','throat','lip','chin','forehead','wrist','ankle','elbow','toe',
+    'nail','lung','bone','blood','skin','muscle','breast','belly','backbone',
+    // 常见动物
+    'bird','horse','cow','pig','sheep','chicken','duck','bear','elephant','monkey',
+    'lion','tiger','snake','rabbit','mouse','wolf','deer','bee','ant','butterfly',
+    'spider','shark','whale','dolphin','eagle','owl','fox','frog','turtle','crab',
+    'goat','rat','bat','insect','pet','cattle','creature',
+    // 常见食物
+    'rice','bread','milk','meat','fruit','apple','banana','coffee','sugar','salt',
+    'cake','cheese','butter','soup','salad','sandwich','pizza','noodle','dumpling',
+    'vegetable','potato','tomato','onion','garlic','pepper','cucumber','carrot',
+    'egg','tea','honey','chocolate','candy','cookie','biscuit','juice','beer','wine',
+    'lemon','grape','strawberry','cherry','peach','pear','mango','watermelon',
+    'coconut','mushroom','bean','corn','wheat','flour','vinegar','sauce',
+    // 家庭成员
+    'father','brother','sister','daughter','husband','wife','parent','uncle','aunt',
+    'cousin','grandfather','grandmother','grandson','granddaughter','nephew','niece',
+    'relative','neighbor','neighbour',
+    // 衣物
+    'shirt','pants','shoes','hat','dress','coat','jacket','sock','bag','boot',
+    'scarf','glove','tie','belt','skirt','suit','uniform','pocket','button','collar',
+    'sleeve','trouser','jean','sweater','raincoat','vest','slipper','sandal',
+    // 学校/学习
+    'book','pen','pencil','paper','teacher','student','class','school','desk','chair',
+    'window','floor','wall','board','lesson','test','exam','homework','library',
+    'dictionary','notebook','eraser','ruler','scissors','glue','tape','calculator',
+    'blackboard','playground','campus','semester','grade','score','mark',
+    // 常见形容词
+    'happy','sad','angry','tired','hungry','thirsty','sick','healthy','rich','poor',
+    'free','full','empty','clean','dirty','quiet','loud','safe','dangerous',
+    'important','interesting','boring','beautiful','ugly','comfortable','convenient',
+    'popular','common','special','different','similar','correct','wrong','possible',
+    'impossible','necessary','available','ready','careful','serious','famous','strange',
+    'familiar','polite','rude','honest','brave','proud','lonely','nervous','excited',
+    'surprised','disappointed','confused','worried','satisfied','grateful','ashamed',
+    'embarrassed','able','alive','alone','amazing','ancient','annual','apparent',
+    'appropriate','attractive','automatic','average','aware','awful','basic','blind',
+    'born','brief','broad','busy','capable','central','certain','civil','classic',
+    'clear','close','cold','commercial','complex','compound','concrete','conscious',
+    'conservative','considerable','constant','contemporary','conventional','correct',
+    'corporate','crazy','creative','criminal','critical','cruel','cultural','current',
+    'cute','daily','dark','dead','deaf','dear','deep','democratic','dependent',
+    'desperate','digital','direct','domestic','dominant','dry','dull','eager',
+    'eastern','economic','educational','effective','efficient','electric','electronic',
+    'entire','environmental','equal','essential','ethnic','eventual','evil','exact',
+    'excellent','exciting','exclusive','existing','exotic','expensive','experienced',
+    'experimental','extra','extreme','faint','fair','faithful','false','fancy',
+    'fantastic','fascinating','fashionable','fatal','favorite','federal','fellow',
+    'female','fierce','final','financial','fine','firm','flat','flexible','flying',
+    'fond','foreign','formal','former','forward','fragile','frequent','friendly',
+    'front','frozen','full','fundamental','funny','general','generous','gentle',
+    'giant','glad','global','golden','gone','gorgeous','grand','grave','great',
+    'gross','growing','guilty','handy','hard','harmful','heavy','helpful','hidden',
+    'high','historical','holy','hopeful','horrible','huge','human','humorous',
+    'ideal','illegal','imaginary','immediate','immune','imperial','impressed',
+    'impressive','improved','independent','indoor','industrial','inevitable',
+    'influential','initial','inner','innocent','instant','intellectual','intelligent',
+    'intense','interested','internal','international','intimate','invisible','involved',
+    'joint','keen','large','late','leading','lean','legal','less','liberal',
+    'likely','limited','linear','liquid','literary','lively','living','logical',
+    'long-term','loose','lost','lovely','loyal','lucky','magic','main','major',
+    'male','massive','material','mathematical','mature','maximum','medium','mental',
+    'mere','middle','military','minimum','minor','missing','mixed','mobile','moderate',
+    'modern','modest','moral','multiple','municipal','musical','mutual','mysterious',
+    'narrow','nasty','national','native','natural','near','neat','negative','neither',
+    'neutral','nice','noble','normal','northern','novel','nuclear','numerous','obvious',
+    'odd','official','online','operational','opposite','ordinary','organic','original',
+    'other','outdoor','outer','overall','overcome','overseas','pale','parallel',
+    'partial','particular','passive','past','patient','peaceful','perfect','permanent',
+    'personal','physical','plain','pleasant','pleased','port','positive','powerful',
+    'practical','precious','pregnant','present','presidential','previous','primary',
+    'prime','principal','prior','private','professional','progressive','promising',
+    'proper','provincial','public','pure','racial','radical','rapid','rare',
+    'rational','realistic','reasonable','recent','regular','related','relative',
+    'relevant','reliable','reluctant','remaining','remote','representative',
+    'republican','responsible','revolutionary','ridiculous','rigid','ripe','rising',
+    'romantic','rough','round','routine','royal','rural','scientific','secondary',
+    'secret','secure','select','senior','sensible','sensitive','separate','severe',
+    'sexual','shallow','sharp','sheer','shiny','shocked','shy','significant','silly',
+    'simple','single','slight','slim','slow','small','smart','smooth','social','soft',
+    'solar','solid','sophisticated','southern','spare','specific','spectacular',
+    'spiritual','stable','standard','steady','steep','stiff','straight','strategic',
+    'strict','striking','strong','stupid','subject','subsequent','substantial',
+    'successful','sufficient','suitable','super','supreme','sure','surprising',
+    'suspicious','sweet','tall','temporary','tender','terminal','terrible','thick',
+    'thin','tight','tiny','total','tough','toxic','traditional','tremendous','tropical',
+    'typical','ultimate','unable','uncertain','uncomfortable','underground','unemployed',
+    'unfair','fortunate','unique','universal','unlikely','unnecessary','unusual','upper',
+    'urban','urgent','used','useful','useless','usual','valuable','various','vast',
+    'vertical','violent','visible','visual','vital','vivid','voluntary','warm','weak',
+    'wealthy','weekly','weird','welcome','well-known','western','wet','whole','wide',
+    'widespread','wild','willing','wise','wonderful','wooden','worse','worst','worth',
+    'worthwhile','worthy','yellow',
+    // 常见副词
+    'really','quite','almost','enough','perhaps','maybe','certainly','suddenly',
+    'immediately','recently','probably','definitely','absolutely','especially',
+    'particularly','generally','basically','actually','finally','gradually',
+    'completely','exactly','directly','easily','gently','greatly','highly','indeed',
+    'instead','mainly','merely','mostly','nearly','normally','obviously','originally',
+    'previously','rarely','simply','slightly','softly','somehow','somewhere',
+    'specifically','surely','therefore','thoroughly','thus','totally','truly',
+    'typically','ultimately','widely','abroad','ahead','alone','apart','aside',
+    'away','back','behind','below','besides','beyond','downstairs','elsewhere',
+    'far','forth','forward','further','hence','indoors','meanwhile','moreover',
+    'nearby','nevertheless','nonetheless','nowadays','off','online','opposite',
+    'otherwise','outdoors','outside','overhead','overseas','overall','sideways',
+    'sometime','somewhat','straight','then','though','together','underground',
+    'upstairs','upward','wherever',
+    // 常见介词/连词
+    'aboard','above','across','against','along','alongside','amid','among',
+    'apart','around','aside','atop','because','beside','besides','beyond',
+    'concerning','considering','despite','during','except','excepting','excluding',
+    'following','inside','like','near','onto','opposite','outside','past',
+    'per','plus','regarding','round','save','since','through','throughout',
+    'till','toward','towards','underneath','unlike','until','upon','versus','via',
+    'whether','while','whilst','worth',
+    // 其他基础词
+    'airplane','airport','alarm','album','ambulance','angel','anger','angle',
+    'ankle','apartment','apple','april','army','arrow','aside','attitude',
+    'audience','autumn','avenue','awake','background','balcony','ball','balloon',
+    'banana','bank','barbecue','basket','basketball','bathroom','battery','beach',
+    'bean','bear','beard','beast','beat','bedroom','beef','beer','bell','belt',
+    'bench','bicycle','bike','birthday','blanket','blouse','blow','boat','bomb',
+    'bone','boss','bottle','bowl','boxing','branch','brand','breath','brick',
+    'bridge','broadcast','brother','brush','bucket','budget','bug','building',
+    'bullet','bunch','burn','bus','butterfly','button','cabbage','cabin','cable',
+    'cafe','cage','calendar','camera','camp','campaign','candle','candy','cap',
+    'capital','captain','car','card','care','career','carpet','carrot','cartoon',
+    'castle','cat','catch','cause','ceiling','cell','center','century','chain',
+    'chair','challenge','champion','championship','channel','chapter','chart',
+    'check','cheek','cheese','cherry','chess','chest','chicken','chief','childhood',
+    'chimney','chip','chocolate','choice','church','cigarette','cinema','circle',
+    'citizen','clap','classmate','clerk','click','cliff','climate','clinic',
+    'clock','cloth','cloud','club','coach','coast','coat','cocktail','code',
+    'coin','cold','collar','college','comb','comedy','command','comment',
+    'commission','companion','comparison','competition','complaint','computer',
+    'concept','conclusion','condition','conference','confidence','conflict',
+    'confusion','connection','consequence','construction','contact','contest',
+    'context','contract','contribution','control','conversation','cook','copy',
+    'corn','corner','cost','cotton','count','counter','couple','courage','course',
+    'court','cousin','crack','craft','crash','cream','cross','crowd','crown',
+    'crystal','culture','cup','curtain','curve','cushion','cycle','damage',
+    'dance','danger','dare','data','database','date','daughter','deal','death',
+    'debate','debt','decade','decision','deck','declaration','decoration','defeat',
+    'defense','definition','degree','delay','delivery','demand','department',
+    'departure','deposit','depression','description','desert','design','desire',
+    'desk','destination','destiny','detail','development','device','dialogue',
+    'diamond','diary','diet','difference','difficulty','dimension','dinosaur',
+    'direction','director','dirt','disaster','discipline','discount','discovery',
+    'discussion','disease','disk','display','distance','district','document',
+    'dog','doll','dollar','donkey','doubt','draft','dragon','drama','drawer',
+    'dream','drill','drink','driver','drop','drum','dust','duty','ear','earth',
+    'east','edge','edition','editor','education','effect','effort','election',
+    'electricity','element','emotion','emphasis','employee','employer','enemy',
+    'energy','engine','engineer','entertainment','entrance','envelope','environment',
+    'episode','equipment','error','escape','estate','event','evidence','evolution',
+    'examination','exchange','excuse','exercise','exhibition','expense','experience',
+    'experiment','explanation','expression','extension','extent','fabric',
+    'failure','faith','fan','farm','fashion','fat','fate','father','fault',
+    'favor','feather','feature','fee','feedback','feeling','fence','fiction',
+    'field','fight','figure','file','film','finance','finding','finger','fire',
+    'flag','flame','flight','float','flood','floor','flour','flower','fold',
+    'football','force','forecast','forest','fork','fortune','foundation','frame',
+    'freedom','frequency','friendship','front','fruit','fuel','function','fur',
+    'furniture','gallery','gap','garage','garden','gas','gate','generation',
+    'gentleman','gesture','gift','glad','glance','glass','globe','glove','goal',
+    'god','gold','golf','government','grace','grade','grain','grand','grandparent',
+    'grass','ground','group','growth','guard','guest','guide','guitar','gun',
+    'guy','habit','hair','hall','ham','hamburger','hammer','hand','handle',
+    'harbor','harvest','hat','hate','headline','headphone','health','heat',
+    'heaven','height','helicopter','hell','helmet','hero','highway','hill',
+    'history','hobby','hole','holiday','homework','honey','horizon','horn',
+    'horror','hospital','host','hotel','hour','household','housing','humor',
+    'hunger','hunt','hurry','ice','imagination','impact','import','impression',
+    'improvement','incident','income','independence','index','indication',
+    'industry','inflation','influence','information','ingredient','initiative',
+    'injury','innovation','input','inquiry','insight','inspection','inspiration',
+    'instance','institution','instruction','instrument','insurance','intelligence',
+    'intention','interaction','interest','interpretation','intervention',
+    'interview','introduction','invasion','investigation','investment','invitation',
+    'iron','island','issue','item','jacket','jail','jam','jar','jazz','jealous',
+    'jeans','jet','jewel','jewelry','job','joke','journal','journey','judge',
+    'juice','jump','jury','justice','kangaroo','keen','kettle','keyboard',
+    'kid','king','kingdom','kiss','kitchen','knee','knife','knock','knot',
+    'knowledge','laboratory','lack','ladder','lake','lamp','land','landscape',
+    'lane','language','lap','laser','laugh','laughter','launch','laundry',
+    'law','lawn','layer','leader','leadership','league','leather','lecture',
+    'leg','legend','lemon','lemonade','length','lesson','letter','level',
+    'library','license','lid','lieutenant','lift','light','limit','line',
+    'link','lion','lip','list','literature','litter','liver','living','load',
+    'loan','lobby','lock','log','logic','logo','look','loss','love','luck',
+    'luggage','lunch','lung','luxury','machine','magazine','maid','mail',
+    'mainland','maintenance','majority','mall','mammal','management','manager',
+    'manner','manufacturer','map','march','margin','mark','market','marriage',
+    'mask','mass','master','match','material','math','matter','maximum',
+    'mayor','meal','meaning','measure','measurement','meat','mechanism',
+    'media','medicine','medium','meeting','melody','member','membership',
+    'memory','mention','menu','merchant','mercy','mess','message','metal',
+    'method','middle','might','mile','military','milk','mill','mind',
+    'mine','mineral','minimum','minister','minority','miracle','mirror',
+    'miss','mission','mistake','mixture','model','moment','money','monitor',
+    'monkey','monument','mood','morality','morning','mosque','mosquito',
+    'motion','motivation','motor','mountain','mouse','mouth','movement',
+    'movie','mud','murder','muscle','museum','music','musician','mystery',
+    'myth','nail','name','narrative','nature','navigation','neck','need',
+    'needle','negotiation','neighbor','neighborhood','nerve','nest','network',
+    'news','newspaper','nightmare','noise','noodle','north','nose','note',
+    'notice','notion','novel','number','nurse','nutrition','object',
+    'objective','obligation','observation','occasion','occupation','ocean',
+    'offer','office','officer','oil','opera','operation','opinion',
+    'opportunity','opposition','option','orange','orchestra','order',
+    'organization','origin','outcome','output','outside','oven','owner',
+    'pace','pack','package','page','pain','paint','painting','pair',
+    'palace','palm','pan','panel','panic','paper','paragraph','parent',
+    'park','parking','part','partner','party','passage','passenger',
+    'passion','path','patience','patient','pattern','pause','payment',
+    'peace','peak','pen','penalty','pension','people','pepper','percent',
+    'percentage','perception','performance','period','permission','permit',
+    'person','personality','perspective','phase','phenomenon','philosophy',
+    'phone','photo','photograph','phrase','piano','pie','piece','pig',
+    'pile','pilot','pin','pine','pink','pipe','pitch','pizza','place',
+    'plan','plane','planet','plant','plate','platform','play','player',
+    'pleasure','plenty','pocket','poem','poet','poetry','point','pole',
+    'police','policy','politics','pollution','pond','pool','pop','port',
+    'portion','portrait','position','possession','possibility','post',
+    'pot','potato','pound','poverty','powder','power','practice',
+    'praise','prayer','prediction','preference','preparation','presence',
+    'presentation','president','press','pressure','price','pride',
+    'priest','prince','princess','principle','print','priority',
+    'prison','prisoner','privacy','prize','problem','procedure',
+    'process','produce','producer','product','production','profession',
+    'professor','profile','profit','program','progress','project',
+    'promise','promotion','proof','property','proposal','prospect',
+    'protection','protest','province','psychology','publication',
+    'punishment','pupil','purchase','purpose','pursuit','quality',
+    'quantity','quarter','queen','question','quote','race','racket',
+    'radiation','radio','rage','rail','rain','range','rank','rat',
+    'rate','ratio','reaction','reality','reason','receipt','reception',
+    'recipe','recognition','recommendation','record','recording',
+    'recovery','reduction','reference','reflection','reform','region',
+    'register','regulation','relation','relationship','release',
+    'relief','religion','remains','remark','remedy','rent','repair',
+    'replacement','reply','report','representative','republic',
+    'reputation','request','requirement','research','reserve',
+    'resident','resistance','resolution','resolve','resort',
+    'resource','respect','response','responsibility','rest',
+    'restaurant','result','retirement','return','revenue','review',
+    'revolution','reward','rhythm','rice','ride','ring','risk',
+    'river','road','robot','rock','rocket','role','roll','roof',
+    'root','rope','rose','rotation','route','row','rubber','rule',
+    'run','rush','safety','sail','sake','salary','sale','salt',
+    'salad','sample','sand','sandwich','satisfaction','sauce',
+    'scale','scandal','scene','schedule','scheme','scholar',
+    'scholarship','school','science','score','scratch','screen',
+    'script','sea','search','season','seat','secret','secretary',
+    'section','sector','security','seed','selection','self',
+    'seller','senator','sense','sensitivity','sentence',
+    'separation','sequence','series','servant','server',
+    'service','session','settlement','shade','shadow','shake',
+    'shame','shape','share','shark','shelter','shift','shine',
+    'ship','shirt','shock','shoe','shoot','shop','shopping',
+    'shore','shortage','shoulder','shout','show','shower',
+    'shrimp','sight','signal','signature','significance',
+    'silence','silver','simple','situation','size','skill',
+    'skin','skirt','sky','slave','slide','slip','smell',
+    'smile','smoke','snow','society','software','soil',
+    'soldier','solution','somewhere','son','song','sort',
+    'soul','source','south','space','speaker','specialist',
+    'species','speech','speed','spirit','sport','spot',
+    'spread','spring','square','stability','staff','stage',
+    'stair','stamp','stand','standard','star','start',
+    'state','statement','station','status','statue',
+    'steak','steam','steel','step','stick','still',
+    'stock','stomach','stone','stop','store','storm',
+    'story','stove','strategy','stream','street','strength',
+    'stress','stretch','strike','string','strip','stroke',
+    'structure','struggle','studio','stuff','style','subject',
+    'success','sugar','suggestion','suit','summer','sun',
+    'supermarket','supply','support','surface','surgery',
+    'surprise','surrounding','survey','survival','suspicion',
+    'sweet','swim','swing','switch','symbol','sympathy',
+    'symptom','system','table','tale','talent','tank',
+    'tape','target','task','tax','taxi','tea','teacher',
+    'technique','technology','telephone','television',
+    'temperature','temple','tennis','tension','term',
+    'territory','terror','text','theme','theory',
+    'therapy','thing','thought','thread','threat',
+    'throat','ticket','tide','tiger','tile','timber',
+    'tissue','title','tobacco','tone','tongue',
+    'tonight','tool','tooth','topic','total','touch',
+    'tour','tourism','towel','tower','track','trade',
+    'tradition','traffic','tragedy','trail','train',
+    'training','trait','transaction','transfer',
+    'transformation','transition','translation',
+    'transmission','transport','trap','trash',
+    'travel','treat','treatment','tree','trend',
+    'trial','tribe','trick','trip','triumph',
+    'troop','truck','trust','truth','tube',
+    'tunnel','twist','type','uncle','understanding',
+    'unemployment','union','unit','universe',
+    'university','upper','user','vacation',
+    'valley','value','van','variation','variety',
+    'vehicle','version','vessel','victim',
+    'victory','video','view','village',
+    'violin','virtue','virus','vision',
+    'visit','visitor','voice','volume',
+    'volunteer','vote','wage','wait',
+    'wake','walk','wall','war','warning',
+    'wash','waste','wave','weakness',
+    'wealth','weapon','weather','website',
+    'wedding','week','weekend','weight',
+    'welcome','welfare','west','western',
+    'wheel','whisper','width','wildlife',
+    'wine','wing','winter','wire',
+    'wisdom','wish','witness','wonder',
+    'wood','wool','worker','workshop',
+    'wound','wrap','yard','youth','zone'
 ]);
 
 // 冷却期：刚复习完的词，至少间隔这么久才再推送（毫秒）
-// 遵循遗忘曲线：第1次复习后1小时，第2次后6小时，第3次后24小时...
+// 优化：给更多时间巩固，避免"天天背还归零"
 function getCooldownMs(prog) {
     const reviews = prog.totalReviews || 0;
-    if (reviews <= 1) return 1 * 3600000;    // 1小时
-    if (reviews <= 2) return 6 * 3600000;    // 6小时
-    if (reviews <= 4) return 24 * 3600000;   // 1天
-    if (reviews <= 6) return 72 * 3600000;   // 3天
-    return 168 * 3600000;                     // 7天
+    if (reviews <= 1) return 2 * 3600000;    // 2小时（原1小时太短）
+    if (reviews <= 2) return 12 * 3600000;   // 12小时（原6小时）
+    if (reviews <= 4) return 36 * 3600000;   // 1.5天（原1天）
+    if (reviews <= 6) return 96 * 3600000;   // 4天（原3天）
+    return 240 * 3600000;                     // 10天（原7天）
 }
 
 // 计算当前召回概率: P = 2^(-t/halfLife)
@@ -708,20 +1042,20 @@ function updateDHPParams(prog, confidence) {
     if (confidence >= 2) {
         // 认识：半衰期增长
         halfLife = halfLife * stability * (1 + difficulty * 0.5);
-        stability = Math.min(stability * 1.1, 10); // 稳定性缓慢增长，上限10
+        stability = Math.min(stability * 1.15, 10); // 稳定性缓慢增长，上限10
     } else if (confidence === 1) {
-        // 模糊：中等惩罚
-        halfLife = halfLife * 0.6;
-        stability = Math.max(stability * 0.9, 1.5);
+        // 模糊：中等惩罚（不要太狠）
+        halfLife = halfLife * 0.65;
+        stability = Math.max(stability * 0.92, 1.8);
     } else {
-        // 不认识：大幅缩短
-        halfLife = halfLife * 0.2;
-        stability = Math.max(stability * 0.8, 1.5);
+        // 不认识：适度缩短（原0.2太狠，改成0.35）
+        halfLife = halfLife * 0.35;
+        stability = Math.max(stability * 0.85, 1.8);
         errorCount++;
     }
 
-    // 半衰期下限 5 分钟，上限 365 天
-    halfLife = Math.max(5/60, Math.min(halfLife, 365 * 24));
+    // 半衰期下限 15 分钟（原5分钟太短），上限 365 天
+    halfLife = Math.max(15/60, Math.min(halfLife, 365 * 24));
 
     // 更新响应历史（保留最近 10 次）
     responseHistory.push(confidence);
@@ -1338,6 +1672,34 @@ async function renderHome() {
             favCardEl.onclick = null;
         }
     }
+
+    // 薄弱词快速复习
+    const weakWordsEl = document.getElementById('weak-words-card');
+    const weakCountEl = document.getElementById('weak-words-count');
+    const weakPreviewEl = document.getElementById('weak-words-preview');
+    if (weakWordsEl && weakCountEl && weakPreviewEl) {
+        // 获取薄弱词：错误次数多 或 半衰期短的词
+        const weakWords = allProg
+            .filter(p => (p.errorCount || 0) >= 2 || (p.halfLife && p.halfLife < 24))
+            .sort((a, b) => calcUrgency(b) - calcUrgency(a))
+            .slice(0, 10)
+            .map(p => words.find(w => w.id === p.wordId))
+            .filter(Boolean);
+
+        weakCountEl.textContent = weakWords.length > 0 ? `(${weakWords.length})` : '';
+        if (weakWords.length > 0) {
+            const previewWords = weakWords.slice(0, 3).map(w => w.word);
+            weakPreviewEl.textContent = weakWords.length > 3
+                ? `${previewWords.join('、')} 等${weakWords.length}个薄弱词，点击复习`
+                : `${previewWords.join('、')}，点击复习`;
+            weakWordsEl.onclick = () => {
+                showWordListModal('薄弱词', weakWords, `错误多或记忆弱，共 ${weakWords.length} 个`);
+            };
+        } else {
+            weakPreviewEl.textContent = '暂无薄弱词，继续保持！';
+            weakWordsEl.onclick = null;
+        }
+    }
 }
 
 // Browse
@@ -1557,7 +1919,7 @@ function showFlashcard() {
     document.getElementById('fc-example').classList.remove('show');
     document.getElementById('fc-example-cn').textContent = w.example_cn;
     document.getElementById('fc-example-cn').classList.remove('show');
-    document.getElementById('fc-hint').textContent = '点击显示释义 | ←不认识 认识→ 模糊↑ | 空格翻牌';
+    document.getElementById('fc-hint').textContent = '点击显示释义 | ←不认识 认识→ 模糊↑ | 空格翻牌 | 手势: 左滑/右滑/上滑';
 
     // 颜色标签：不认识红色/模糊黄色
     const fcCard = document.getElementById('fc-card');
@@ -1633,10 +1995,10 @@ async function handleFCResponse(confidence) {
     if (confidence <= 1 && requeueCount < maxRequeue && state.fcQueue.length < 500) {
         w._requeueCount = requeueCount + 1;
         w._revisit = confidence === 0 ? 'hard' : 'ok';
-        // 不认识：5-10个词后再出现；模糊：15-20个词后再出现
+        // 不认识：10-15个词后再出现；模糊：20-30个词后再出现
         const gap = confidence === 0
-            ? 5 + Math.floor(Math.random() * 6)
-            : 15 + Math.floor(Math.random() * 6);
+            ? 10 + Math.floor(Math.random() * 6)
+            : 20 + Math.floor(Math.random() * 11);
         const insertIdx = Math.min(state.fcIdx + gap, state.fcQueue.length);
         state.fcQueue.splice(insertIdx, 0, w);
     }
@@ -2747,6 +3109,12 @@ const ACHIEVEMENTS = [
     { id: 'review_1000', name: '千次复习', desc: '累计复习1000次', icon: '🔄', check: async () => { const p = await getAllProgress(); return p.reduce((s, x) => s + (x.totalReviews || 0), 0) >= 1000; } },
     { id: 'review_5000', name: '五千次复习', desc: '累计复习5000次', icon: '⚡', check: async () => { const p = await getAllProgress(); return p.reduce((s, x) => s + (x.totalReviews || 0), 0) >= 5000; } },
     { id: 'daily_done', name: '今日达标', desc: '首次完成今日目标', icon: '✅', check: (s) => (s.totalCount || 0) >= state.dailyTarget },
+    { id: 'perfect_round', name: '满分通关', desc: '待复习一轮全部答对', icon: '💯', check: async (s) => { const allStats = await getAllStats(); return allStats.some(st => st.practiceCount >= 10 && st.practiceCorrect === st.practiceCount); } },
+    { id: 'early_bird', name: '早起鸟', desc: '早上6点前开始学习', icon: '🐦', check: () => { const h = new Date().getHours(); return h >= 5 && h < 6; } },
+    { id: 'night_owl', name: '夜猫子', desc: '晚上11点后还在学习', icon: '🦉', check: () => { const h = new Date().getHours(); return h >= 23 || h < 2; } },
+    { id: 'speed_learner', name: '速记王', desc: '1小时内复习100+词', icon: '⚡', check: async (s) => { return (s.totalCount || 0) >= 100; } },
+    { id: 'favorite_10', name: '收藏家', desc: '收藏10个以上单词', icon: '⭐', check: () => getFavorites().length >= 10 },
+    { id: 'spelling_perfect', name: '拼写达人', desc: '拼写练习正确率100%（10题+）', icon: '✍️', check: async (s) => { return s.spellingCount >= 10 && s.spellingCorrect === s.spellingCount; } },
 ];
 
 async function checkAchievements(todayStats) {
@@ -2939,41 +3307,79 @@ document.addEventListener('keydown', e => {
         closeCelebration();
         return;
     }
-    // 只在认词页面激活时生效
-    const flashcardPage = document.getElementById('page-flashcard');
-    if (!flashcardPage.classList.contains('active')) return;
-    if (state.fcIdx >= state.fcQueue.length) return;
 
     // 忽略输入框内的按键
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
 
-    const meaningEl = document.getElementById('fc-meaning');
-    const isRevealed = meaningEl.classList.contains('show');
+    // 认词页面快捷键
+    const flashcardPage = document.getElementById('page-flashcard');
+    if (flashcardPage.classList.contains('active') && state.fcIdx < state.fcQueue.length) {
+        const meaningEl = document.getElementById('fc-meaning');
+        const isRevealed = meaningEl.classList.contains('show');
 
-    switch(e.key) {
-        case ' ':
-        case 'Enter':
+        switch(e.key) {
+            case ' ':
+            case 'Enter':
+                e.preventDefault();
+                if (!isRevealed) {
+                    document.getElementById('fc-meaning').classList.add('show');
+                    document.getElementById('fc-example').classList.add('show');
+                    document.getElementById('fc-example-cn').classList.add('show');
+                    document.getElementById('fc-hint').textContent = '';
+                }
+                break;
+            case 'ArrowLeft':
+                e.preventDefault();
+                if (isRevealed) handleFCResponse(0);
+                break;
+            case 'ArrowRight':
+                e.preventDefault();
+                if (isRevealed) handleFCResponse(2);
+                break;
+            case 'ArrowUp':
+                e.preventDefault();
+                if (isRevealed) handleFCResponse(1);
+                break;
+        }
+        return;
+    }
+
+    // 待复习页面快捷键：1/2/3/4 选择选项
+    const practicePage = document.getElementById('page-practice');
+    if (practicePage.classList.contains('active') && state.quizIdx < state.quizWords.length) {
+        const options = document.querySelectorAll('.quiz-option');
+        const nextBtn = document.getElementById('quiz-next');
+
+        if (e.key >= '1' && e.key <= '4') {
             e.preventDefault();
-            if (!isRevealed) {
-                // 翻牌
-                document.getElementById('fc-meaning').classList.add('show');
-                document.getElementById('fc-example').classList.add('show');
-                document.getElementById('fc-example-cn').classList.add('show');
-                document.getElementById('fc-hint').textContent = '';
+            const idx = parseInt(e.key) - 1;
+            if (options[idx] && !options[idx].dataset.answered) {
+                options[idx].click();
             }
-            break;
-        case 'ArrowLeft':
+        } else if ((e.key === ' ' || e.key === 'Enter') && nextBtn.style.display !== 'none') {
             e.preventDefault();
-            if (isRevealed) handleFCResponse(0); // 不认识
-            break;
-        case 'ArrowRight':
+            nextBtn.click();
+        }
+        return;
+    }
+
+    // 拼写页面快捷键
+    const spellingPage = document.getElementById('page-spelling');
+    if (spellingPage.classList.contains('active') && !spState.done) {
+        const nextBtn = document.getElementById('sp-next');
+        const submitBtn = document.getElementById('sp-submit');
+
+        if (e.key === 'Enter') {
             e.preventDefault();
-            if (isRevealed) handleFCResponse(2); // 认识
-            break;
-        case 'ArrowUp':
+            if (submitBtn.style.display !== 'none') {
+                submitBtn.click();
+            } else if (nextBtn.style.display !== 'none') {
+                nextBtn.click();
+            }
+        } else if (e.key === 'Tab') {
             e.preventDefault();
-            if (isRevealed) handleFCResponse(1); // 模糊
-            break;
+            document.getElementById('sp-show').click();
+        }
     }
 });
 
@@ -3021,7 +3427,7 @@ const DAILY_TIPS = [
     { text: 'The only way to do great work is to love what you do.', author: 'Steve Jobs' },
     { text: 'Education is the most powerful weapon which you can use to change the world.', author: 'Nelson Mandela' },
     { text: 'It does not matter how slowly you go as long as you do not stop.', author: 'Confucius' },
-    { text: ' perseverance is not a long race; it is many short races one after the other.', author: 'Walter Elliot' },
+    { text: 'Perseverance is not a long race; it is many short races one after the other.', author: 'Walter Elliot' },
     { text: '学而不思则罔，思而不学则殆。', author: '孔子' },
     { text: '温故而知新，可以为师矣。', author: '孔子' },
     { text: 'The journey of a thousand miles begins with a single step.', author: 'Lao Tzu' },
@@ -3030,6 +3436,16 @@ const DAILY_TIPS = [
     { text: '你现在的努力，是为了以后有更多的选择。', author: '' },
     { text: '坚持不一定成功，但放弃一定失败。', author: '' },
     { text: '每天进步一点点，就是最好的状态。', author: '' },
+    { text: '背单词就像存钱，每天存一点，复利会让你惊喜。', author: '' },
+    { text: '记忆的本质是重复，不是天赋。', author: '' },
+    { text: '今天的汗水，是明天的底气。', author: '' },
+    { text: '不要等待机会，而要创造机会。', author: '' },
+    { text: 'The more you read, the more things you will know.', author: 'Dr. Seuss' },
+    { text: 'A little progress each day adds up to big results.', author: '' },
+    { text: '你背过的每个单词，都是未来的一块砖。', author: '' },
+    { text: '学习不怕慢，就怕站。', author: '' },
+    { text: '日日行，不怕千万里；常常做，不怕千万事。', author: '' },
+    { text: 'The best time to plant a tree was 20 years ago. The second best time is now.', author: '' },
 ];
 
 function getDailyTip() {
@@ -3060,24 +3476,27 @@ function getStreakWithFreeze() {
         return { count: newCount, freezeAvailable: newCount >= 7 };
     }
 
-    // Check if streak can be saved by freeze (gap of 1 day, streak >= 7)
+    // Check if streak can be saved by freeze
     const lastDateObj = new Date(lastDate);
     const todayObj = new Date(t);
     const gapDays = Math.floor((todayObj - lastDateObj) / 86400000);
 
-    if (gapDays === 2 && count >= 7 && !freezeUsed) {
-        // Auto-use freeze: treat yesterday as a freeze day
+    // 连续7天+可以保护1天缺口，连续14天+可以保护2天缺口
+    const maxFreezeDays = count >= 14 ? 2 : 1;
+    if (gapDays <= maxFreezeDays + 1 && count >= 7 && !freezeUsed) {
+        // Auto-use freeze: treat gap days as freeze days
         localStorage.setItem('streak_count', (count + 1).toString());
         localStorage.setItem('streak_last_date', t);
         localStorage.setItem('streak_freeze_used', 'true');
         return { count: count + 1, freezeAvailable: false, freezeUsedNow: true };
     }
 
-    // Streak broken
-    localStorage.setItem('streak_count', '1');
+    // Streak broken - 但不要直接归1，保留部分进度
+    const keepDays = Math.max(1, Math.floor(count * 0.3)); // 保留30%的连续天数
+    localStorage.setItem('streak_count', keepDays.toString());
     localStorage.setItem('streak_last_date', t);
     localStorage.removeItem('streak_freeze_used');
-    return { count: 1, freezeAvailable: false };
+    return { count: keepDays, freezeAvailable: false };
 }
 
 // ============================================================
