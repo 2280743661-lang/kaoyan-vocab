@@ -314,7 +314,7 @@ body {
 <div id="splash">
     <h1>考研背单词</h1>
     <p>SSP-MMC 智能调度 · DHP 记忆模型</p>
-    <p style="font-size:11px;color:var(--text2);margin-top:4px">v3.0 · 遗忘曲线优化 · 简单词过滤</p>
+    <p style="font-size:11px;color:var(--text2);margin-top:4px">v3.1 · 记忆曲线修复 · 正确率优化 · 人性化升级</p>
     <div class="loader"></div>
     <p id="splash-tip" style="font-size:12px;color:var(--text2);margin-top:20px;text-align:center;line-height:1.6"></p>
 </div>
@@ -356,6 +356,11 @@ body {
     <div class="card">
         <div class="card-title">今日进度</div>
         <div class="progress-bar"><div class="progress-fill" id="today-progress" style="width:0%"></div></div>
+    </div>
+    <div class="card">
+        <div class="card-title">总掌握进度 <span id="mastered-pct" style="color:var(--accent);font-size:12px"></span></div>
+        <div class="progress-bar"><div class="progress-fill" id="mastered-progress" style="width:0%;background:linear-gradient(90deg,var(--accent2),var(--success))"></div></div>
+        <div id="mastered-detail" style="font-size:12px;color:var(--text2);margin-top:4px"></div>
     </div>
     <div class="card">
         <div class="card-title">待办事项</div>
@@ -1564,6 +1569,14 @@ async function renderHome() {
     const target = state.dailyTarget;
     const pct = Math.min(100, Math.round(reviewed / target * 100));
     animateProgressBar(document.getElementById('today-progress'), pct);
+
+    // 总掌握进度条
+    const totalWords = words.filter(w => !SIMPLE_WORDS.has(w.word.toLowerCase())).length;
+    const masteredPct = Math.min(100, Math.round(mastered / totalWords * 100));
+    animateProgressBar(document.getElementById('mastered-progress'), masteredPct);
+    document.getElementById('mastered-pct').textContent = `${masteredPct}%`;
+    document.getElementById('mastered-detail').textContent = `已掌握 ${mastered} / ${totalWords} 词 · 已学 ${totalLearned} 词`;
+
     const allStats = await getStatsForDate(today());
     checkDailyCelebration(allStats);
 
@@ -1583,7 +1596,6 @@ async function renderHome() {
     renderModuleStats();
 
     // 学习进度预测
-    const totalWords = words.filter(w => !SIMPLE_WORDS.has(w.word.toLowerCase())).length;
     const learnedPct = Math.round(totalLearned / totalWords * 100);
     const daysToFinish = reviewed > 0 ? Math.ceil((totalWords - totalLearned) / reviewed) : Infinity;
     const finishDate = daysToFinish < 365 ? new Date(Date.now() + daysToFinish * 86400000).toLocaleDateString('zh-CN', { month: 'long', day: 'numeric' }) : '很久以后';
@@ -1880,10 +1892,12 @@ function showFlashcard() {
         const okCount = state.fcOkIds.size;
         const hesitateCount = state.fcHesitateIds.size;
         const easyCount = total - hardCount - okCount;
-        document.getElementById('fc-done-summary').textContent =
-            `已完成 ${total} 词`;
+        const fcRate = total > 0 ? Math.round(easyCount / total * 100) : 0;
+        let fcEmoji = fcRate >= 80 ? '💪' : fcRate >= 50 ? '📈' : '🔥';
+        document.getElementById('fc-done-summary').innerHTML =
+            `${fcEmoji} 已完成 ${total} 词 · 认识率 ${fcRate}%`;
         document.getElementById('fc-done-detail').textContent =
-            `不认识 ${hardCount} | 模糊 ${okCount} | 犹豫 ${hesitateCount} | 认识 ${easyCount}`;
+            `认识 ${easyCount} | 模糊 ${okCount} | 犹豫 ${hesitateCount} | 不认识 ${hardCount}`;
 
         // Save review words for next round: hard + ok + hesitate
         const reviewIds = [...new Set([...state.fcHardIds, ...state.fcOkIds, ...state.fcHesitateIds])];
@@ -2279,8 +2293,9 @@ function savePracticeRound(round, hardIds) {
     localStorage.setItem(PRACTICE_HARD_KEY, JSON.stringify(hardIds));
 }
 
-function savePracticeRoundState(wordIds, quizIdx) {
-    localStorage.setItem(PRACTICE_ROUND_STATE_KEY, JSON.stringify({ wordIds, quizIdx, date: today() }));
+function savePracticeRoundState(wordIds, quizIdx, quizCorrect, quizHardIds) {
+    const hardArr = quizHardIds instanceof Set ? [...quizHardIds] : (quizHardIds || []);
+    localStorage.setItem(PRACTICE_ROUND_STATE_KEY, JSON.stringify({ wordIds, quizIdx, quizCorrect: quizCorrect || 0, quizHardIds: hardArr, date: today() }));
 }
 
 function loadPracticeRoundState() {
@@ -2307,8 +2322,8 @@ async function initPractice() {
             document.getElementById('quiz-done').style.display = 'none';
             state.quizWords = restoredPool;
             state.quizIdx = savedState.quizIdx;
-            state.quizCorrect = 0;
-            state.quizHardIds = new Set();
+            state.quizCorrect = savedState.quizCorrect || 0;
+            state.quizHardIds = new Set(savedState.quizHardIds || []);
             showQuiz();
             return;
         }
@@ -2380,7 +2395,7 @@ async function initPractice() {
     state.quizIdx = 0;
     state.quizCorrect = 0;
     state.quizHardIds = new Set();
-    savePracticeRoundState(pool.map(w => w.id), 0);
+    savePracticeRoundState(pool.map(w => w.id), 0, 0, new Set());
     showQuiz();
 }
 
@@ -2388,9 +2403,22 @@ function showQuiz() {
     if (state.quizIdx >= state.quizWords.length) {
         document.getElementById('quiz-container').style.display = 'none';
         document.getElementById('quiz-done').style.display = 'block';
-        const rate = Math.round(state.quizCorrect/state.quizWords.length*100);
-        document.getElementById('quiz-done-summary').textContent =
-            `正确率: ${rate}% (${state.quizCorrect}/${state.quizWords.length})`;
+        const total = state.quizWords.length;
+        const correct = state.quizCorrect;
+        const wrong = total - correct;
+        const rate = Math.round(correct / total * 100);
+
+        // 鼓励语
+        let emoji, encourage;
+        if (rate >= 95) { emoji = '🏆'; encourage = '太棒了！几乎全对！'; }
+        else if (rate >= 80) { emoji = '💪'; encourage = '表现不错，继续保持！'; }
+        else if (rate >= 60) { emoji = '📈'; encourage = '还有进步空间，加油！'; }
+        else { emoji = '🔥'; encourage = '别灰心，多复习几轮就好了！'; }
+
+        document.getElementById('quiz-done-summary').innerHTML =
+            `<div style="font-size:32px;margin-bottom:8px">${emoji}</div>` +
+            `<div style="font-size:16px;font-weight:700;margin-bottom:4px">${encourage}</div>` +
+            `<div>正确率: ${rate}% (${correct}/${total}) · 错误 ${wrong} 个</div>`;
 
         // 保存不认识的词到下一轮，清除轮次进度
         clearPracticeRoundState();
@@ -2402,10 +2430,14 @@ function showQuiz() {
         const roundInfo = document.getElementById('quiz-round-info');
         if (hardIds.length > 0) {
             nextBtn.style.display = 'inline-block';
-            roundInfo.textContent = `第${round + 1}轮完成 | ${hardIds.length}个不认识的词将保留到下一轮`;
+            // 显示错误词列表
+            const wrongWords = hardIds.map(id => words.find(w => w.id === id)).filter(Boolean);
+            const wrongList = wrongWords.slice(0, 10).map(w => `<span style="display:inline-block;background:var(--surface2);padding:2px 8px;border-radius:6px;margin:2px;font-size:12px">${w.word}</span>`).join('');
+            const more = wrongWords.length > 10 ? `<span style="font-size:12px;color:var(--text2)">...还有${wrongWords.length - 10}个</span>` : '';
+            roundInfo.innerHTML = `第${round + 1}轮完成 | ${hardIds.length}个错误词将保留到下一轮<br><div style="margin-top:6px">${wrongList}${more}</div>`;
         } else {
             nextBtn.style.display = 'none';
-            roundInfo.textContent = `第${round + 1}轮完成 | 没有不认识的词，全部掌握！`;
+            roundInfo.textContent = `第${round + 1}轮完成 | 全部掌握！🎉`;
         }
         return;
     }
@@ -2467,7 +2499,7 @@ function showQuiz() {
 
 document.getElementById('quiz-next').onclick = () => {
     state.quizIdx++;
-    savePracticeRoundState(state.quizWords.map(w => w.id), state.quizIdx);
+    savePracticeRoundState(state.quizWords.map(w => w.id), state.quizIdx, state.quizCorrect, state.quizHardIds);
     showQuiz();
 };
 
@@ -2484,8 +2516,9 @@ async function renderReport() {
     // Stats
     const totalLearned = allProg.length;
     const mastered = allProg.filter(p => p.mastered || (p.halfLife && p.halfLife >= MASTERED_HALFLIFE)).length;
-    const avgHalfLifeDays = allProg.length > 0
-        ? (allProg.reduce((s, p) => s + (p.halfLife || INITIAL_HALFLIFE), 0) / allProg.length / 24).toFixed(1)
+    const reviewedForAvg = allProg.filter(p => (p.totalReviews || 0) >= 2);
+    const avgHalfLifeDays = reviewedForAvg.length > 0
+        ? (reviewedForAvg.reduce((s, p) => s + (p.halfLife || INITIAL_HALFLIFE), 0) / reviewedForAvg.length / 24).toFixed(1)
         : '0.0';
     const totalReviews = allProg.reduce((s, p) => s + (p.totalReviews || 0), 0);
     const avgDifficulty = allProg.length > 0
@@ -2494,9 +2527,9 @@ async function renderReport() {
 
     document.getElementById('report-stats').innerHTML = `
         <div class="report-stat"><div class="num">${totalLearned}</div><div class="label">已学单词</div></div>
-        <div class="report-stat"><div class="num">${mastered}</div><div class="label">已掌握(半衰期>15天或连续5次)</div></div>
-        <div class="report-stat"><div class="num">${avgHalfLifeDays}天</div><div class="label">平均半衰期</div></div>
-        <div class="report-stat"><div class="num">${avgDifficulty}%</div><div class="label">平均难度</div></div>
+        <div class="report-stat"><div class="num">${mastered}</div><div class="label">已掌握</div></div>
+        <div class="report-stat"><div class="num">${avgHalfLifeDays}天</div><div class="label">平均半衰期(已复习)</div></div>
+        <div class="report-stat"><div class="num">${totalReviews}</div><div class="label">累计复习次数</div></div>
     `;
 
     drawForgettingCurve(allProg);
@@ -2598,9 +2631,10 @@ function drawForgettingCurve(allProg) {
 
     ctx.clearRect(0, 0, w, h);
 
-    // DHP predicted curve (based on average halfLife)
-    const avgHalfLife = allProg.length > 0
-        ? allProg.reduce((s, p) => s + (p.halfLife || INITIAL_HALFLIFE), 0) / allProg.length / 24
+    // DHP predicted curve (只用已复习≥2次的词计算平均半衰期，避免新词拉低)
+    const reviewedProg = allProg.filter(p => (p.totalReviews || 0) >= 2);
+    const avgHalfLife = reviewedProg.length > 0
+        ? reviewedProg.reduce((s, p) => s + (p.halfLife || INITIAL_HALFLIFE), 0) / reviewedProg.length / 24
         : 0.5; // days
     ctx.strokeStyle = 'rgba(0,210,255,0.3)';
     ctx.setLineDash([4, 4]);
@@ -2615,15 +2649,17 @@ function drawForgettingCurve(allProg) {
     ctx.stroke();
     ctx.setLineDash([]);
 
-    // Actual retention from user data
+    // Actual retention: 用DHP召回概率 P=2^(-t/halfLife) 替代线性衰减
+    // 只统计已复习≥2次的词，排除未复习/仅1次的词（半衰期不可靠）
     if (allProg.length > 0) {
         const now = Date.now();
         const points = allProg
-            .filter(p => p.lastReview)
+            .filter(p => p.lastReview && (p.totalReviews || 0) >= 2 && p.halfLife)
             .map(p => {
-                const daysAgo = (now - p.lastReview) / 86400000;
-                const retention = Math.max(0, 100 - daysAgo * 15);
-                return { days: daysAgo, retention: Math.min(100, retention) };
+                const hoursAgo = (now - p.lastReview) / 3600000;
+                const retention = Math.pow(2, -hoursAgo / p.halfLife) * 100;
+                const daysAgo = hoursAgo / 24;
+                return { days: daysAgo, retention: Math.max(0, Math.min(100, retention)) };
             })
             .filter(p => p.days <= 30 && p.days >= 0);
 
